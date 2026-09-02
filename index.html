@@ -89,6 +89,53 @@
   <p class="muted" id="etat-depot"></p>
 </div>
 
+<!-- ============ AGENDA ============ -->
+<div id="ecran-agenda" class="colonne ecran">
+  <h1 id="agenda-titre">Agenda</h1>
+  <div class="rangee">
+    <button id="btn-jour-avant" class="secondaire">‹</button>
+    <button id="btn-aujourdhui" class="secondaire">Aujourd'hui</button>
+    <button id="btn-jour-apres" class="secondaire">›</button>
+  </div>
+  <div id="liste-agenda"></div>
+  <button id="btn-nouveau-rdv">+ Nouveau rendez-vous</button>
+</div>
+
+<!-- ============ NOUVEAU RENDEZ-VOUS ============ -->
+<div id="ecran-rdv" class="colonne ecran">
+  <h1>Nouveau rendez-vous</h1>
+  <p class="muted">Ce qu'on note au téléphone. Les nids et le prix se
+    saisissent sur place, au moment de l'intervention.</p>
+  <div class="carte">
+    <label for="rdv-nom">Nom du client</label>
+    <input id="rdv-nom">
+    <label for="rdv-tel">Téléphone</label>
+    <input id="rdv-tel" type="tel" inputmode="tel">
+    <div class="rangee">
+      <div><label for="rdv-date">Date</label>
+        <input id="rdv-date" type="date"></div>
+      <div><label for="rdv-heure">Heure</label>
+        <input id="rdv-heure" type="time"></div>
+    </div>
+    <label for="rdv-duree">Durée prévue (min)</label>
+    <input id="rdv-duree" type="number" min="15" step="15" value="45"
+      inputmode="numeric">
+    <label for="rdv-adresse">Adresse</label>
+    <input id="rdv-adresse">
+    <div class="rangee">
+      <div><label for="rdv-npa">NPA</label>
+        <input id="rdv-npa" inputmode="numeric" maxlength="4"></div>
+      <div style="flex:2"><label for="rdv-localite">Localité</label>
+        <input id="rdv-localite"></div>
+    </div>
+    <label for="rdv-note">Ce que dit le client</label>
+    <textarea id="rdv-note" rows="3"></textarea>
+  </div>
+  <button id="btn-enregistrer-rdv">Enregistrer le rendez-vous</button>
+  <div id="etat-rdv"></div>
+  <button id="btn-annuler-rdv" class="secondaire">Annuler</button>
+</div>
+
 <!-- ============ INTERVENTIONS ============ -->
 <div id="ecran-interventions" class="colonne ecran">
   <h1>Interventions</h1>
@@ -126,13 +173,33 @@
   </div>
 
   <div class="kicker">Nids traités</div>
+  <div id="liste-nids"></div>
+  <button id="btn-ajouter-nid" class="secondaire">+ Ajouter un nid</button>
+
+  <div class="kicker">Détails</div>
   <div class="carte">
-    <label for="nid-insecte">Insecte</label>
-    <select id="nid-insecte"></select>
-    <label for="nid-quantite">Nombre de nids</label>
-    <input id="nid-quantite" type="number" min="1" value="1" inputmode="numeric">
     <label for="dist-km">Distance aller (km) — facultatif</label>
     <input id="dist-km" type="number" min="0" inputmode="decimal">
+    <label for="duree-min">Durée sur place (min) — facultatif</label>
+    <input id="duree-min" type="number" min="0" inputmode="numeric">
+    <label for="aide-nid">Aide communale par nid (CHF) — facultatif</label>
+    <input id="aide-nid" type="number" step="0.05" inputmode="decimal">
+  </div>
+
+  <div class="kicker">Coûts ponctuels</div>
+  <p class="muted">Dépenses réelles de CETTE intervention : nacelle louée,
+    cordiste, matériel spécial. Elles ne viennent pas de la grille.</p>
+  <div id="liste-couts"></div>
+  <button id="btn-ajouter-cout" class="secondaire">+ Ajouter un coût</button>
+
+  <div class="kicker">Prix convenu</div>
+  <div class="carte">
+    <p class="muted">« Sept nids dans une ferme, on dit 900 francs. » Le détail
+      calculé reste affiché, et une ligne montre l'écart.</p>
+    <label for="convenu-total">Total convenu (CHF) — vide = prix calculé</label>
+    <input id="convenu-total" type="number" step="0.05" inputmode="decimal">
+    <label for="convenu-motif">Motif (apparaît sur la facture)</label>
+    <input id="convenu-motif">
   </div>
 
   <div class="kicker">Montant</div>
@@ -193,15 +260,46 @@
       jamais ajoutée en bas de facture.</p>
   </div>
 
-  <div class="kicker">Tarifs</div>
-  <div class="carte" id="carte-tarifs"></div>
+  <div class="kicker">Grille tarifaire</div>
+  <p class="muted">Vous n'êtes pas obligé de facturer à l'insecte. Une règle
+    dit <em>quand</em> elle s'applique et <em>combien</em> elle vaut. Sans
+    condition, elle s'applique toujours — c'est un forfait.</p>
+  <div id="liste-regles"></div>
+  <button id="btn-ajouter-regle" class="secondaire">+ Ajouter une règle</button>
 
-  <div class="kicker">Déplacement</div>
+  <div class="kicker">Dégressivité multi-nids</div>
   <div class="carte">
-    <label for="dep-chfkm">CHF par km</label>
-    <input id="dep-chfkm" type="number" step="0.1" inputmode="decimal">
-    <label for="dep-franchise">Kilomètres non facturés</label>
-    <input id="dep-franchise" type="number" inputmode="numeric">
+    <label for="deg-type">Remise à partir du 2<sup>e</sup> nid</label>
+    <select id="deg-type">
+      <option value="">Aucune</option>
+      <option value="pourcent">Pourcentage</option>
+      <option value="montant">Montant en CHF</option>
+    </select>
+    <label for="deg-valeur">Valeur</label>
+    <input id="deg-valeur" type="number" step="0.05" inputmode="decimal">
+    <label for="deg-apartir">À partir du nid n°</label>
+    <input id="deg-apartir" type="number" min="2" value="2" inputmode="numeric">
+  </div>
+
+  <div class="kicker">Majorations</div>
+  <div class="carte">
+    <label for="maj-mode">Quand plusieurs majorations touchent le même nid</label>
+    <select id="maj-mode">
+      <option value="plus_elevee">Seule la plus élevée s'applique</option>
+      <option value="cumul">Elles se cumulent</option>
+    </select>
+  </div>
+
+  <div class="kicker">Frais de déplacement</div>
+  <div class="carte">
+    <label for="dep-mode">Mode de facturation</label>
+    <select id="dep-mode">
+      <option value="fixe">Montant fixe</option>
+      <option value="par_km">Au kilomètre</option>
+      <option value="zones">Par paliers de distance</option>
+      <option value="cantons">Par canton</option>
+    </select>
+    <div id="dep-champs"></div>
   </div>
 
   <button id="btn-enregistrer-reglages">Enregistrer les réglages</button>
@@ -210,7 +308,8 @@
 </div>
 
 <nav id="barre" style="display:none"><div class="inner">
-  <button data-ecran="interventions">Interventions</button>
+  <button data-ecran="agenda">Agenda</button>
+  <button data-ecran="interventions">À facturer</button>
   <button data-ecran="factures">Factures</button>
   <button data-ecran="reglages">Réglages</button>
 </div></nav>
@@ -249,7 +348,8 @@
   }
 
   function montrer(nom) {
-    ['connexion', 'interventions', 'nouvelle', 'factures', 'facture', 'reglages']
+    ['connexion', 'agenda', 'rdv', 'interventions', 'nouvelle',
+     'factures', 'facture', 'reglages']
       .forEach(function (e) {
         $('ecran-' + e).classList.toggle('visible', e === nom);
       });
@@ -308,7 +408,8 @@
   }
 
   function apresConnexion() {
-    chargerTout().then(function () { montrer('interventions'); });
+    // L'agenda du jour est ce qu'on veut voir en ouvrant l'application.
+    chargerTout().then(function () { montrer('agenda'); });
   }
 
   function chargerTout() {
@@ -324,6 +425,7 @@
       return depot.listerInterventions();
     }).then(function (l) {
       interventions = l || [];
+      afficherAgenda();
       afficherInterventions();
       return depot.listerFactures();
     }).then(function (f) {
@@ -379,9 +481,14 @@
     $('ent-iban').value = e.iban || '';
     $('tva-assujetti').value = reglages.tva.assujetti ? 'oui' : 'non';
     $('tva-taux').value = reglages.tva.taux;
-    $('dep-chfkm').value = reglages.deplacement.chfKm;
-    $('dep-franchise').value = reglages.deplacement.franchiseKm;
-    afficherTarifs();
+    $('maj-mode').value = reglages.majorations || 'plus_elevee';
+    var deg = reglages.degressivite;
+    $('deg-type').value = deg ? deg.type : '';
+    $('deg-valeur').value = deg
+      ? (deg.type === 'montant' ? deg.valeur / 100 : deg.valeur) : '';
+    $('deg-apartir').value = (deg && deg.aPartirDu) || 2;
+    afficherRegles();
+    afficherDeplacement();
     verifierIban();
   }
 
@@ -399,43 +506,353 @@
   }
   $('ent-iban').addEventListener('blur', verifierIban);
 
-  function afficherTarifs() {
-    var h = '';
-    (reglages.insectes || []).forEach(function (ins) {
-      var t = (reglages.tarifs || []).find(function (x) {
-        return x.insectId === ins.id && x.customerType === 'particulier';
-      }) || {};
-      h += '<label>' + ins.libelle + ' — 1<sup>er</sup> nid (CHF)</label>'
-        + '<input data-tarif="' + ins.id + '" data-champ="firstNest" '
-        + 'type="number" step="0.05" inputmode="decimal" value="'
-        + (t.firstNest ? (t.firstNest / 100) : '') + '">'
-        + '<label>' + ins.libelle + ' — nid suivant (CHF)</label>'
-        + '<input data-tarif="' + ins.id + '" data-champ="extraNest" '
-        + 'type="number" step="0.05" inputmode="decimal" value="'
-        + (t.extraNest ? (t.extraNest / 100) : '') + '">';
-    });
-    $('carte-tarifs').innerHTML = h;
+  /* ---------- Grille tarifaire : editeur de regles ---------- */
+
+  /*
+    Une regle = des CONDITIONS (quand) + un CALCUL (combien).
+    On n'impose aucune structure : c'est l'entreprise qui decrit sa
+    facon de facturer. Une regle sans condition est un forfait.
+  */
+
+  var CRITERES = [
+    { id: 'insecte',      libelle: 'Insecte',        liste: 'insectes' },
+    { id: 'localisation', libelle: 'Localisation',   liste: 'localisations' },
+    { id: 'hauteur',      libelle: 'Hauteur',        liste: 'hauteurs' },
+    { id: 'type_client',  libelle: 'Type de client', liste: 'typesClient' },
+    { id: 'quantite',     libelle: 'Nombre de nids', plage: true },
+    { id: 'duree',        libelle: 'Durée (min)',    plage: true },
+    { id: 'distance',     libelle: 'Distance (km)',  plage: true },
+  ];
+
+  var TYPES_CLIENT = [
+    { id: 'particulier', libelle: 'Particulier' },
+    { id: 'commune', libelle: 'Commune' },
+    { id: 'gerance', libelle: 'Gérance' },
+    { id: 'entreprise', libelle: 'Entreprise' },
+  ];
+
+  function valeursDe(nomListe) {
+    if (nomListe === 'typesClient') return TYPES_CLIENT;
+    return reglages[nomListe] || [];
   }
 
-  function lireTarifsDepuisFormulaire() {
-    var parInsecte = {};
-    Array.prototype.forEach.call(
-      document.querySelectorAll('[data-tarif]'), function (i) {
-        var id = i.dataset.tarif;
-        if (!parInsecte[id]) {
-          parInsecte[id] = { insectId: id, customerType: 'particulier' };
-        }
-        var francs = parseFloat(i.value);
-        if (!isNaN(francs)) {
-          // chf() convertit en centimes : jamais de francs flottants
-          // dans les calculs, 0.1 + 0.2 ne fait pas 0.3.
-          parInsecte[id][i.dataset.champ] = window.Billy.chf(francs);
-        }
-      });
-    return Object.keys(parInsecte)
-      .map(function (k) { return parInsecte[k]; })
-      .filter(function (t) { return t.firstNest; });
+  function afficherRegles() {
+    var regles = reglages.regles || [];
+    if (!regles.length) {
+      $('liste-regles').innerHTML = '<div class="carte"><p class="muted">'
+        + 'Aucune règle : rien ne peut être facturé. Ajoutez-en une.'
+        + '</p></div>';
+      return;
+    }
+    $('liste-regles').innerHTML = regles.map(function (r, n) {
+      return '<div class="carte">'
+        + '<div class="rangee"><div style="flex:3">'
+        + '<label>Libellé sur la facture</label>'
+        + '<input data-r="' + n + '" data-c="label" value="'
+        + (r.label || '').replace(/"/g, '&quot;') + '"></div>'
+        + '<div><label>Rôle</label><select data-r="' + n + '" data-c="role">'
+        + opt('base', 'Prix de base', r.role)
+        + opt('supplement', 'Supplément', r.role)
+        + '</select></div></div>'
+
+        + '<label>Comment le montant est calculé</label>'
+        + '<select data-r="' + n + '" data-c="calc">'
+        + opt('fixe', 'Montant fixe', r.calc)
+        + opt('pourcent', 'Pourcentage de la base', r.calc)
+        + opt('par_tranche', 'Par tranche entamée', r.calc)
+        + '</select>'
+
+        + champsCalcul(r, n)
+
+        + '<label>Conditions — la règle s\u2019applique si TOUTES sont vraies</label>'
+        + (r.conditions || []).map(function (c, k) {
+            return champsCondition(c, n, k); }).join('')
+        + '<button class="secondaire" data-ajouter-cond="' + n + '">'
+        + '+ Condition</button>'
+        + '<button class="secondaire" data-suppr-regle="' + n + '">'
+        + 'Supprimer cette règle</button>'
+        + '</div>';
+    }).join('');
+    brancherEditeurRegles();
   }
+
+  function opt(v, texte, courant) {
+    return '<option value="' + v + '"' + (courant === v ? ' selected' : '')
+      + '>' + texte + '</option>';
+  }
+
+  function champsCalcul(r, n) {
+    var h = '';
+    if (r.calc === 'pourcent') {
+      h += '<label>Pourcentage</label><input type="number" step="1" '
+        + 'inputmode="decimal" data-r="' + n + '" data-c="value" value="'
+        + (r.value || '') + '">';
+      return h;
+    }
+    var enFrancs = (r.value || 0) / 100;
+    h += '<label>Montant (CHF)</label><input type="number" step="0.05" '
+      + 'inputmode="decimal" data-r="' + n + '" data-c="valueChf" value="'
+      + (r.value ? enFrancs : '') + '">';
+    if (r.calc === 'par_tranche') {
+      h += '<label>Par tranche de</label>'
+        + '<select data-r="' + n + '" data-c="mesure">'
+        + opt('duree', 'minutes', r.mesure)
+        + opt('distance', 'kilomètres', r.mesure)
+        + opt('quantite', 'nids', r.mesure) + '</select>'
+        + '<input type="number" inputmode="numeric" data-r="' + n
+        + '" data-c="tailleTranche" value="' + (r.tailleTranche || 30) + '">';
+      return h;
+    }
+    // fixe
+    h += '<label>Appliqué</label><select data-r="' + n + '" data-c="per">'
+      + opt('nid', 'par nid', r.per || 'nid')
+      + opt('intervention', 'une fois par intervention', r.per) + '</select>';
+    if ((r.per || 'nid') === 'nid') {
+      h += '<label>Nids suivants (CHF) — vide = même prix</label>'
+        + '<input type="number" step="0.05" inputmode="decimal" data-r="' + n
+        + '" data-c="valueSuivantsChf" value="'
+        + (r.valueSuivants ? (r.valueSuivants / 100) : '') + '">';
+    }
+    if (r.role === 'base') {
+      h += '<label>Minimum facturé (CHF) — facultatif</label>'
+        + '<input type="number" step="0.05" inputmode="decimal" data-r="' + n
+        + '" data-c="minimumChf" value="'
+        + (r.minimum ? (r.minimum / 100) : '') + '">';
+    }
+    return h;
+  }
+
+  function champsCondition(c, n, k) {
+    var crit = CRITERES.find(function (x) { return x.id === c.critere; })
+      || CRITERES[0];
+    var h = '<div class="carte" style="background:#14161a">'
+      + '<select data-r="' + n + '" data-k="' + k + '" data-c="critere">'
+      + CRITERES.map(function (x) {
+          return opt(x.id, x.libelle, c.critere); }).join('')
+      + '</select>';
+
+    if (crit.plage) {
+      h += '<div class="rangee">'
+        + '<div><label>De</label><input type="number" inputmode="numeric" '
+        + 'data-r="' + n + '" data-k="' + k + '" data-c="min" value="'
+        + (c.min == null ? '' : c.min) + '"></div>'
+        + '<div><label>À</label><input type="number" inputmode="numeric" '
+        + 'data-r="' + n + '" data-k="' + k + '" data-c="max" value="'
+        + (c.max == null ? '' : c.max) + '"></div></div>';
+    } else {
+      // Plusieurs valeurs cochees = OU. « frelon OU frelon asiatique ».
+      h += '<p class="muted">Cochez une ou plusieurs valeurs (OU)</p>';
+      h += valeursDe(crit.liste).map(function (v) {
+        var coche = (c.valeurs || []).indexOf(v.id) >= 0;
+        return '<label style="color:var(--ivoire);display:flex;'
+          + 'align-items:center;gap:8px;margin:4px 0">'
+          + '<input type="checkbox" style="width:auto" data-r="' + n
+          + '" data-k="' + k + '" data-c="valeur" data-v="' + v.id + '"'
+          + (coche ? ' checked' : '') + '>' + v.libelle + '</label>';
+      }).join('');
+    }
+    h += '<button class="secondaire" data-suppr-cond="' + n + '.' + k + '">'
+      + 'Retirer cette condition</button></div>';
+    return h;
+  }
+
+  function brancherEditeurRegles() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#liste-regles [data-r]'), function (el) {
+        el.addEventListener('change', function () {
+          appliquerChamp(el); afficherRegles();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-ajouter-cond]'), function (b) {
+        b.addEventListener('click', function () {
+          var r = reglages.regles[+b.dataset.ajouterCond];
+          r.conditions = r.conditions || [];
+          r.conditions.push({ critere: 'insecte', valeurs: [] });
+          afficherRegles();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-cond]'), function (b) {
+        b.addEventListener('click', function () {
+          var p = b.dataset.supprCond.split('.');
+          reglages.regles[+p[0]].conditions.splice(+p[1], 1);
+          afficherRegles();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-regle]'), function (b) {
+        b.addEventListener('click', function () {
+          reglages.regles.splice(+b.dataset.supprRegle, 1);
+          afficherRegles();
+        });
+      });
+  }
+
+  function appliquerChamp(el) {
+    var r = reglages.regles[+el.dataset.r];
+    if (!r) return;
+    var c = el.dataset.c;
+
+    if (el.dataset.k !== undefined) {
+      var cond = r.conditions[+el.dataset.k];
+      if (c === 'critere') {
+        cond.critere = el.value;
+        // Changer de critere vide l'ancienne selection : garder des
+        // valeurs d'insecte sur une condition de hauteur donnerait une
+        // regle qui ne s'applique jamais, sans rien dire.
+        if (['quantite', 'duree', 'distance'].indexOf(el.value) >= 0) {
+          delete cond.valeurs; cond.min = undefined; cond.max = undefined;
+        } else { cond.valeurs = []; delete cond.min; delete cond.max; }
+      } else if (c === 'valeur') {
+        cond.valeurs = cond.valeurs || [];
+        var i = cond.valeurs.indexOf(el.dataset.v);
+        if (el.checked && i < 0) cond.valeurs.push(el.dataset.v);
+        if (!el.checked && i >= 0) cond.valeurs.splice(i, 1);
+      } else {
+        cond[c] = el.value === '' ? undefined : Number(el.value);
+      }
+      return;
+    }
+
+    // Les montants sont saisis en francs et ranges en centimes : jamais
+    // de francs flottants dans les calculs.
+    if (c === 'valueChf') { r.value = el.value ? window.Billy.chf(+el.value) : 0; }
+    else if (c === 'valueSuivantsChf') {
+      r.valueSuivants = el.value ? window.Billy.chf(+el.value) : undefined;
+    } else if (c === 'minimumChf') {
+      r.minimum = el.value ? window.Billy.chf(+el.value) : undefined;
+    } else if (c === 'value') { r.value = Number(el.value) || 0; }
+    else if (c === 'tailleTranche') { r.tailleTranche = Number(el.value) || 30; }
+    else { r[c] = el.value; }
+  }
+
+  $('btn-ajouter-regle').addEventListener('click', function () {
+    reglages.regles = reglages.regles || [];
+    reglages.regles.push({
+      id: window.Billy.uuidv7(), role: 'base', label: 'Nouvelle règle',
+      conditions: [], calc: 'fixe', value: 0, per: 'nid',
+      sort: reglages.regles.length, isActive: true,
+    });
+    afficherRegles();
+  });
+
+  /* ---------- Frais de deplacement ---------- */
+
+  function afficherDeplacement() {
+    var d = reglages.deplacement;
+    $('dep-mode').value = d.mode || 'par_km';
+    var h = '';
+    if (d.mode === 'fixe') {
+      h = champ('dep-montant', 'Montant (CHF)', d.montant, '0.05');
+    } else if (d.mode === 'par_km') {
+      h = champ('dep-chfkm', 'CHF par kilomètre', d.chfKm, '0.05')
+        + champ('dep-franchise', 'Premiers kilomètres offerts', d.franchiseKm, '1')
+        + '<label>Facturer l\u2019aller-retour</label>'
+        + '<select id="dep-ar">' + opt('oui', 'Oui', d.allerRetour ? 'oui' : 'non')
+        + opt('non', 'Non', d.allerRetour ? 'oui' : 'non') + '</select>'
+        + champ('dep-montant', 'Montant si la distance est inconnue (CHF)',
+                d.montant, '0.05');
+    } else if (d.mode === 'zones') {
+      h = '<p class="muted">Paliers de distance. Le palier retenu est le '
+        + 'plus lointain atteint : rangez-les du plus grand au plus petit.</p>'
+        + (d.zones || []).map(function (z, i) {
+          return '<div class="carte" style="background:#14161a">'
+            + '<label>Nom du palier (visible sur la facture)</label>'
+            + '<input data-z="' + i + '" data-c="label" value="'
+            + (z.label || '').replace(/"/g, '&quot;') + '">'
+            + '<div class="rangee">'
+            + '<div><label>À partir de (km)</label><input type="number" '
+            + 'data-z="' + i + '" data-c="fromKm" value="'
+            + (z.fromKm == null ? '' : z.fromKm) + '"></div>'
+            + '<div><label>Montant (CHF)</label><input type="number" step="0.05" '
+            + 'data-z="' + i + '" data-c="montant" value="'
+            + (z.amount == null ? '' : z.amount) + '"></div></div>'
+            + '<button class="secondaire" data-suppr-zone="' + i + '">'
+            + 'Retirer</button></div>';
+        }).join('')
+        + '<button class="secondaire" id="btn-ajouter-zone">+ Palier</button>'
+        + champ('dep-montant', 'Au-delà du dernier palier (CHF)', d.montant, '0.05');
+    } else {
+      h = '<p class="muted">Un montant par canton. Les cantons non listés '
+        + 'sont facturés au montant de base.</p>'
+        + (d.cantons || []).map(function (c, i) {
+          return '<div class="rangee">'
+            + '<div><label>Canton</label><input data-ct="' + i + '" '
+            + 'data-c="canton" maxlength="2" value="' + (c.canton || '') + '"></div>'
+            + '<div><label>Montant (CHF)</label><input type="number" step="0.05" '
+            + 'data-ct="' + i + '" data-c="montant" value="'
+            + (c.amount == null ? '' : c.amount) + '"></div></div>';
+        }).join('')
+        + '<button class="secondaire" id="btn-ajouter-canton">+ Canton</button>'
+        + champ('dep-montant', 'Cantons non listés (CHF)', d.montant, '0.05');
+    }
+    $('dep-champs').innerHTML = h;
+    brancherDeplacement();
+  }
+
+  function champ(id, libelle, valeur, pas) {
+    return '<label for="' + id + '">' + libelle + '</label>'
+      + '<input id="' + id + '" type="number" step="' + pas
+      + '" inputmode="decimal" value="' + (valeur == null ? '' : valeur) + '">';
+  }
+
+  function brancherDeplacement() {
+    var d = reglages.deplacement;
+    function lier(id, action) {
+      var el = $(id); if (el) el.addEventListener('change', action);
+    }
+    lier('dep-montant', function () { d.montant = parseFloat($('dep-montant').value) || 0; });
+    lier('dep-chfkm', function () { d.chfKm = parseFloat($('dep-chfkm').value) || 0; });
+    lier('dep-franchise', function () { d.franchiseKm = parseInt($('dep-franchise').value, 10) || 0; });
+    lier('dep-ar', function () { d.allerRetour = $('dep-ar').value === 'oui'; });
+
+    var ajZone = $('btn-ajouter-zone');
+    if (ajZone) ajZone.addEventListener('click', function () {
+      d.zones = d.zones || [];
+      d.zones.push({ id: window.Billy.uuidv7(), label: 'Palier',
+                     fromKm: 0, amount: 0 });
+      afficherDeplacement();
+    });
+    var ajCanton = $('btn-ajouter-canton');
+    if (ajCanton) ajCanton.addEventListener('click', function () {
+      d.cantons = d.cantons || [];
+      d.cantons.push({ canton: '', amount: 0 });
+      afficherDeplacement();
+    });
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#dep-champs [data-z]'), function (el) {
+        el.addEventListener('change', function () {
+          var z = d.zones[+el.dataset.z];
+          // ATTENTION : les montants de deplacement sont en FRANCS
+          // (le moteur les convertit lui-meme). Les ranger en centimes
+          // facturait 100 fois trop.
+          if (el.dataset.c === 'fromKm') z.fromKm = el.value ? +el.value : 0;
+          else if (el.dataset.c === 'label') z.label = el.value;
+          else z.amount = el.value ? +el.value : 0;
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-zone]'), function (b) {
+        b.addEventListener('click', function () {
+          d.zones.splice(+b.dataset.supprZone, 1); afficherDeplacement();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#dep-champs [data-ct]'), function (el) {
+        el.addEventListener('change', function () {
+          var c = d.cantons[+el.dataset.ct];
+          if (el.dataset.c === 'canton') c.canton = el.value.toUpperCase();
+          else c.amount = el.value ? +el.value : 0;
+        });
+      });
+  }
+
+  $('dep-mode').addEventListener('change', function () {
+    reglages.deplacement.mode = $('dep-mode').value;
+    afficherDeplacement();
+  });
 
   $('btn-enregistrer-reglages').addEventListener('click', function () {
     reglages.entreprise = {
@@ -445,9 +862,19 @@
     };
     reglages.tva.assujetti = $('tva-assujetti').value === 'oui';
     reglages.tva.taux = parseFloat($('tva-taux').value) || 0;
-    reglages.deplacement.chfKm = parseFloat($('dep-chfkm').value) || 0;
-    reglages.deplacement.franchiseKm = parseInt($('dep-franchise').value, 10) || 0;
-    reglages.tarifs = lireTarifsDepuisFormulaire();
+    reglages.majorations = $('maj-mode').value;
+
+    // Les regles et le deplacement sont deja a jour : chaque champ
+    // ecrit dans `reglages` au moment ou il change. Un formulaire
+    // relu en bloc perdrait les conditions ajoutees dynamiquement.
+    var t = $('deg-type').value;
+    reglages.degressivite = t ? {
+      type: t,
+      valeur: t === 'montant'
+        ? window.Billy.chf(parseFloat($('deg-valeur').value) || 0)
+        : (parseFloat($('deg-valeur').value) || 0),
+      aPartirDu: parseInt($('deg-apartir').value, 10) || 2,
+    } : null;
 
     depot.ecrireReglages(reglages).then(function () {
       var manque = window.BillySuisse.champsManquantsPourFacturer(reglages);
@@ -455,7 +882,6 @@
         ? 'Enregistré. Il manque pour facturer : ' + manque.join(', ')
         : 'Enregistré. Vous pouvez facturer.',
         manque.length ? 'info' : 'ok');
-      remplirInsectes();
     }).catch(function (e) {
       message('etat-reglages', 'Enregistrement impossible : ' + (e.message || e));
     });
@@ -463,21 +889,311 @@
 
   /* ---------- Interventions ---------- */
 
-  function remplirInsectes() {
-    $('nid-insecte').innerHTML = (reglages.insectes || []).map(function (i) {
-      return '<option value="' + i.id + '">' + i.libelle + '</option>';
+  /* ---------- Saisie des nids ---------- */
+
+  /*
+    Plusieurs nids, chacun avec SES caracteristiques : deux nids de
+    guepes en toiture et un frelon en cave, ce n'est pas la meme
+    facture. La grille peut conditionner sur la localisation et la
+    hauteur — sans ces champs, ces regles ne se declencheraient jamais.
+  */
+  var nidsSaisie = [];
+  var coutsSaisie = [];
+
+  function nidVide() {
+    var ins = (reglages.insectes || [])[0];
+    return { insectId: ins ? ins.id : '', quantity: 1,
+             locationId: '', heightId: '' };
+  }
+
+  function listeOptions(liste, courant, videLibelle) {
+    var h = '<option value="">' + (videLibelle || '—') + '</option>';
+    return h + (liste || []).map(function (v) {
+      return '<option value="' + v.id + '"'
+        + (courant === v.id ? ' selected' : '') + '>' + v.libelle + '</option>';
     }).join('');
   }
 
-  function afficherInterventions() {
-    if (!interventions.length) {
-      $('liste-interventions').innerHTML =
-        '<div class="carte"><p class="muted">Aucune intervention.</p></div>';
+  function afficherNids() {
+    if (!nidsSaisie.length) {
+      $('liste-nids').innerHTML = '<div class="carte"><p class="muted">'
+        + 'Aucun nid. Ajoutez-en au moins un.</p></div>';
       return;
     }
-    $('liste-interventions').innerHTML = interventions.map(function (it) {
+    $('liste-nids').innerHTML = nidsSaisie.map(function (n, i) {
+      return '<div class="carte">'
+        + '<div class="rangee">'
+        + '<div style="flex:2"><label>Insecte</label>'
+        + '<select data-n="' + i + '" data-c="insectId">'
+        + listeOptions(reglages.insectes, n.insectId, 'Choisir')
+        + '</select></div>'
+        + '<div><label>Nombre</label>'
+        + '<input type="number" min="1" inputmode="numeric" data-n="' + i
+        + '" data-c="quantity" value="' + n.quantity + '"></div></div>'
+        + '<label>Localisation</label>'
+        + '<select data-n="' + i + '" data-c="locationId">'
+        + listeOptions(reglages.localisations, n.locationId, 'Non précisée')
+        + '</select>'
+        + '<label>Hauteur</label>'
+        + '<select data-n="' + i + '" data-c="heightId">'
+        + listeOptions(reglages.hauteurs, n.heightId, 'Non précisée')
+        + '</select>'
+        + (nidsSaisie.length > 1
+            ? '<button class="secondaire" data-suppr-nid="' + i + '">'
+              + 'Retirer ce nid</button>' : '')
+        + '</div>';
+    }).join('');
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#liste-nids [data-n]'), function (el) {
+        el.addEventListener('change', function () {
+          var n = nidsSaisie[+el.dataset.n];
+          n[el.dataset.c] = el.dataset.c === 'quantity'
+            ? (parseInt(el.value, 10) || 1) : el.value;
+          afficherNids();
+          rafraichirChiffrage();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-nid]'), function (b) {
+        b.addEventListener('click', function () {
+          nidsSaisie.splice(+b.dataset.supprNid, 1);
+          afficherNids(); rafraichirChiffrage();
+        });
+      });
+  }
+
+  $('btn-ajouter-nid').addEventListener('click', function () {
+    nidsSaisie.push(nidVide());
+    afficherNids(); rafraichirChiffrage();
+  });
+
+  /* ---------- Couts ponctuels ---------- */
+
+  function afficherCouts() {
+    $('liste-couts').innerHTML = coutsSaisie.length
+      ? coutsSaisie.map(function (c, i) {
+          return '<div class="carte"><div class="rangee">'
+            + '<div style="flex:2"><label>Intitulé</label>'
+            + '<input data-cp="' + i + '" data-c="label" value="'
+            + (c.label || '').replace(/"/g, '&quot;') + '"></div>'
+            + '<div><label>CHF</label><input type="number" step="0.05" '
+            + 'inputmode="decimal" data-cp="' + i + '" data-c="montant" value="'
+            + (c.amount ? c.amount / 100 : '') + '"></div></div>'
+            + '<button class="secondaire" data-suppr-cout="' + i + '">'
+            + 'Retirer</button></div>';
+        }).join('')
+      : '';
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#liste-couts [data-cp]'), function (el) {
+        el.addEventListener('change', function () {
+          var c = coutsSaisie[+el.dataset.cp];
+          if (el.dataset.c === 'label') c.label = el.value;
+          else c.amount = el.value ? window.Billy.chf(+el.value) : 0;
+          rafraichirChiffrage();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-cout]'), function (b) {
+        b.addEventListener('click', function () {
+          coutsSaisie.splice(+b.dataset.supprCout, 1);
+          afficherCouts(); rafraichirChiffrage();
+        });
+      });
+  }
+
+  $('btn-ajouter-cout').addEventListener('click', function () {
+    coutsSaisie.push({ label: 'Nacelle louée', amount: 0 });
+    afficherCouts();
+  });
+
+  /* ---------- Agenda ---------- */
+
+  /*
+    Un rendez-vous n'est pas une intervention.
+
+    Au telephone, on ne connait ni les nids ni le prix : on note un
+    nom, une heure, une adresse. Les nids et le montant se saisissent
+    sur place. C'est pour cela que le formulaire de RDV est court et
+    celui d'intervention long — et que le collegue au bureau peut
+    remplir l'un sans rien connaitre de l'autre.
+
+    Une seule table, un statut : « planifie » puis « termine ».
+  */
+
+  var jourAffiche = new Date();
+
+  function cleJour(d) {
+    // Date locale au format AAAA-MM-JJ. `toISOString` donnerait l'UTC
+    // et decalerait d'un jour les rendez-vous du soir.
+    var m = String(d.getMonth() + 1), j = String(d.getDate());
+    return d.getFullYear() + '-' + (m.length < 2 ? '0' + m : m)
+      + '-' + (j.length < 2 ? '0' + j : j);
+  }
+
+  function memeJour(iso, d) {
+    return cleJour(new Date(iso)) === cleJour(d);
+  }
+
+  function titreJour(d) {
+    var aujourdhui = cleJour(new Date());
+    if (cleJour(d) === aujourdhui) return "Aujourd'hui";
+    var demain = new Date(); demain.setDate(demain.getDate() + 1);
+    if (cleJour(d) === cleJour(demain)) return 'Demain';
+    return d.toLocaleDateString('fr-CH',
+      { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
+  function afficherAgenda() {
+    $('agenda-titre').textContent = titreJour(jourAffiche);
+
+    var duJour = interventions.filter(function (it) {
+      return it.statut === 'planifie' && memeJour(it.debut_le, jourAffiche);
+    }).sort(function (a, b) {
+      return String(a.debut_le).localeCompare(String(b.debut_le));
+    });
+
+    if (!duJour.length) {
+      $('liste-agenda').innerHTML = '<div class="carte"><p class="muted">'
+        + 'Aucun rendez-vous ce jour.</p></div>';
+      return;
+    }
+
+    $('liste-agenda').innerHTML = duJour.map(function (it) {
+      var d = it.donnees || {};
+      var h = new Date(it.debut_le).toLocaleTimeString('fr-CH',
+        { hour: '2-digit', minute: '2-digit' });
+      return '<div class="carte" data-ouvrir-rdv="' + it.id + '">'
+        + '<strong>' + h + ' · ' + (d.clientNom || 'Client') + '</strong>'
+        + '<div class="muted">'
+        + ((it.adresse || '') + ' ' + (it.npa || '') + ' '
+           + (it.localite || '')).trim()
+        + (d.telephone ? ' · ' + d.telephone : '') + '</div>'
+        + (d.note ? '<div class="muted">« ' + d.note + ' »</div>' : '')
+        + '<button data-demarrer="' + it.id + '">Faire l\u2019intervention</button>'
+        + '</div>';
+    }).join('');
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-demarrer]'), function (b) {
+        b.addEventListener('click', function () {
+          ouvrirInterventionDepuisRdv(b.dataset.demarrer);
+        });
+      });
+  }
+
+  $('btn-jour-avant').addEventListener('click', function () {
+    jourAffiche.setDate(jourAffiche.getDate() - 1); afficherAgenda();
+  });
+  $('btn-jour-apres').addEventListener('click', function () {
+    jourAffiche.setDate(jourAffiche.getDate() + 1); afficherAgenda();
+  });
+  $('btn-aujourdhui').addEventListener('click', function () {
+    jourAffiche = new Date(); afficherAgenda();
+  });
+
+  /* ---------- Prise de rendez-vous ---------- */
+
+  $('btn-nouveau-rdv').addEventListener('click', function () {
+    ['rdv-nom', 'rdv-tel', 'rdv-adresse', 'rdv-npa', 'rdv-localite', 'rdv-note']
+      .forEach(function (i) { $(i).value = ''; });
+    $('rdv-date').value = cleJour(jourAffiche);
+    $('rdv-heure').value = '09:00';
+    $('rdv-duree').value = 45;
+    message('etat-rdv', '');
+    montrer('rdv');
+  });
+
+  $('btn-annuler-rdv').addEventListener('click', function () {
+    montrer('agenda');
+  });
+
+  $('btn-enregistrer-rdv').addEventListener('click', function () {
+    var nom = $('rdv-nom').value.trim();
+    if (!nom) { message('etat-rdv', 'Le nom du client est nécessaire.'); return; }
+    if (!$('rdv-date').value || !$('rdv-heure').value) {
+      message('etat-rdv', 'Indiquez une date et une heure.'); return;
+    }
+
+    // Date locale explicite : « 2026-09-04T09:00 » sans Z est
+    // interprete dans le fuseau de l'appareil, ce qui est bien ce
+    // qu'on veut pour un rendez-vous pris en Suisse.
+    var debut = new Date($('rdv-date').value + 'T' + $('rdv-heure').value);
+    if (isNaN(debut.getTime())) {
+      message('etat-rdv', 'Date ou heure incorrecte.'); return;
+    }
+
+    var ligne = {
+      id: window.Billy.uuidv7(),
+      debut_le: debut.toISOString(),
+      duree_min: parseInt($('rdv-duree').value, 10) || 45,
+      statut: 'planifie',
+      adresse: $('rdv-adresse').value.trim(),
+      npa: $('rdv-npa').value.trim(),
+      localite: $('rdv-localite').value.trim(),
+      donnees: {
+        clientNom: nom,
+        telephone: $('rdv-tel').value.trim(),
+        note: $('rdv-note').value.trim(),
+      },
+    };
+
+    depot.enregistrerIntervention(ligne).then(function () {
+      interventions.unshift(ligne);
+      jourAffiche = new Date(ligne.debut_le);
+      afficherAgenda();
+      afficherInterventions();
+      montrer('agenda');
+    }).catch(function (e) {
+      message('etat-rdv', 'Enregistrement impossible : ' + (e.message || e));
+    });
+  });
+
+  /* ---------- Du rendez-vous a l'intervention ---------- */
+
+  /** Rendez-vous en cours de traitement, ou null pour une visite directe. */
+  var rdvEnCours = null;
+
+  function ouvrirInterventionDepuisRdv(id) {
+    var it = interventions.find(function (x) { return x.id === id; });
+    if (!it) return;
+    rdvEnCours = it;
+    var d = it.donnees || {};
+
+    // Le formulaire est PRE-REMPLI : ce que le collegue a note au
+    // telephone ne doit pas etre ressaisi sur le terrain.
+    $('cli-nom').value = d.clientNom || '';
+    $('cli-npa').value = it.npa || '';
+    $('cli-localite').value = it.localite || '';
+    $('cli-adresse').value = it.adresse || '';
+    ['dist-km', 'duree-min', 'aide-nid', 'convenu-total', 'convenu-motif']
+      .forEach(function (i) { $(i).value = ''; });
+    $('duree-min').value = it.duree_min || '';
+    nidsSaisie = [nidVide()];
+    coutsSaisie = [];
+    afficherNids();
+    afficherCouts();
+    rafraichirChiffrage();
+    montrer('nouvelle');
+  }
+
+  /* ---------- Liste des interventions ---------- */
+
+  function afficherInterventions() {
+    // Un rendez-vous planifie n'est pas facturable : il n'a ni nid ni
+    // montant. Il vit dans l'agenda jusqu'a ce qu'il soit fait.
+    var faites = interventions.filter(function (it) {
+      return it.statut !== 'planifie';
+    });
+    if (!faites.length) {
+      $('liste-interventions').innerHTML =
+        '<div class="carte"><p class="muted">Aucune intervention à facturer.'
+        + '</p></div>';
+      return;
+    }
+    $('liste-interventions').innerHTML = faites.map(function (it) {
       var d = it.donnees || it;
-      var quand = new Date(it.debut_le || d.date || Date.now());
+      var quand = new Date(it.debut_le || Date.now());
       return '<div class="carte"><strong>' + (d.clientNom || 'Client') + '</strong>'
         + ' <span class="pastille">' + (d.facturee ? 'Facturée' : 'À facturer')
         + '</span><div class="muted">' + quand.toLocaleDateString('fr-CH')
@@ -492,11 +1208,17 @@
       });
   }
 
+  /* ---------- Nouvelle intervention ---------- */
+
   $('btn-nouvelle').addEventListener('click', function () {
-    ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'dist-km']
+    rdvEnCours = null;
+    ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'dist-km',
+     'duree-min', 'aide-nid', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
-    $('nid-quantite').value = 1;
-    remplirInsectes();
+    nidsSaisie = [nidVide()];
+    coutsSaisie = [];
+    afficherNids();
+    afficherCouts();
     rafraichirChiffrage();
     montrer('nouvelle');
   });
@@ -506,17 +1228,32 @@
   });
 
   function interventionDepuisFormulaire() {
+    var convenu = parseFloat($('convenu-total').value);
     return {
       clientNom: $('cli-nom').value.trim(),
       npa: $('cli-npa').value.trim(),
       localite: $('cli-localite').value.trim(),
       adresse: $('cli-adresse').value.trim(),
       typeClient: $('cli-type').value,
-      nids: [{
-        insectId: $('nid-insecte').value,
-        quantity: parseInt($('nid-quantite').value, 10) || 1,
-      }],
+      // Copie : sans elle, modifier le formulaire changerait aussi une
+      // intervention deja enregistree.
+      nids: nidsSaisie.map(function (n) {
+        return { insectId: n.insectId, quantity: n.quantity,
+                 locationId: n.locationId || undefined,
+                 heightId: n.heightId || undefined };
+      }),
       distanceKm: $('dist-km').value ? parseFloat($('dist-km').value) : null,
+      dureeMin: $('duree-min').value
+        ? parseInt($('duree-min').value, 10) : undefined,
+      aideParNid: $('aide-nid').value
+        ? window.Billy.chf(parseFloat($('aide-nid').value)) : 0,
+      supplementsPonctuels: coutsSaisie.filter(function (c) {
+        return c.amount > 0;
+      }).map(function (c) { return { label: c.label, amount: c.amount }; }),
+      prixConvenu: !isNaN(convenu) && convenu > 0
+        ? { total: window.Billy.chf(convenu),
+            motif: $('convenu-motif').value.trim() || undefined }
+        : undefined,
     };
   }
 
@@ -542,7 +1279,8 @@
     $('carte-chiffrage').innerHTML = h;
   }
 
-  ['nid-insecte', 'nid-quantite', 'dist-km', 'cli-type'].forEach(function (id) {
+  ['dist-km', 'duree-min', 'aide-nid', 'convenu-total', 'convenu-motif',
+   'cli-type'].forEach(function (id) {
     $(id).addEventListener('change', rafraichirChiffrage);
     $(id).addEventListener('input', rafraichirChiffrage);
   });
@@ -553,14 +1291,29 @@
       message('carte-chiffrage', 'Le nom du client est nécessaire.');
       return;
     }
-    var ligne = {
+    // Si l'intervention vient d'un rendez-vous, on MET A JOUR ce
+    // rendez-vous au lieu d'en creer un second : sinon il resterait
+    // planifie pour toujours dans l'agenda.
+    var existant = rdvEnCours;
+    var ligne = existant ? {
+      id: existant.id,
+      debut_le: existant.debut_le,
+      duree_min: existant.duree_min,
+      npa: it.npa, localite: it.localite, adresse: it.adresse,
+      statut: 'termine',
+      donnees: Object.assign({}, existant.donnees, it),
+    } : {
       id: window.Billy.uuidv7(),
       debut_le: new Date().toISOString(),
       npa: it.npa, localite: it.localite, adresse: it.adresse,
       statut: 'termine', donnees: it,
     };
+
     depot.enregistrerIntervention(ligne).then(function () {
-      interventions.unshift(ligne);
+      var i = interventions.findIndex(function (x) { return x.id === ligne.id; });
+      if (i >= 0) interventions[i] = ligne; else interventions.unshift(ligne);
+      rdvEnCours = null;
+      afficherAgenda();
       afficherInterventions();
       montrer('interventions');
     }).catch(function (e) {

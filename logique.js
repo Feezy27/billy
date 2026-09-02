@@ -37,11 +37,49 @@
       // Regle metier confirmee : entre deux majorations qui
       // s'appliquent au meme nid, seule la plus elevee compte.
       majorations: 'plus_elevee',
-      tarifs: [],
-      modificateurs: [],
+
+      /*
+        GRILLE TARIFAIRE MODULABLE — le modele de BillyPro.
+
+        Une entreprise n'est PAS obligee de facturer « a l'insecte ».
+        Elle empile des regles ; chacune dit QUAND elle s'applique
+        (ses conditions) et COMBIEN elle vaut (son calcul).
+
+          au forfait   -> une regle sans condition
+          a l'insecte  -> une regle par insecte
+          a la hauteur -> une regle par palier
+          combine      -> « frelon ET plus de 8 m » = une regle,
+                          deux conditions
+
+        Les conditions se cumulent (ET). Dans une condition, plusieurs
+        valeurs sont acceptees (OU).
+
+        Vide au depart : c'est a l'entreprise de decrire SA facon de
+        facturer, pas au logiciel de la lui imposer.
+      */
+      regles: [],
+
+      /* Remise a partir du 2e nid. null = aucune. */
+      degressivite: null,
+
+      /* Listes parametrables, utilisees par les conditions. */
+      localisations: [
+        { id: 'exterieur', libelle: 'Extérieur accessible' },
+        { id: 'toiture', libelle: 'Toiture' },
+        { id: 'cheminee', libelle: 'Cheminée' },
+        { id: 'comble', libelle: 'Combles' },
+        { id: 'cave', libelle: 'Cave / vide sanitaire' },
+      ],
+      hauteurs: [
+        { id: 'h0_3', libelle: "Jusqu'à 3 m" },
+        { id: 'h3_8', libelle: '3 à 8 m' },
+        { id: 'h8_15', libelle: '8 à 15 m' },
+        { id: 'h15p', libelle: 'Plus de 15 m' },
+      ],
+
       deplacement: {
         mode: 'par_km', montant: 0, chfKm: 1.2,
-        allerRetour: true, franchiseKm: 10, zones: [],
+        allerRetour: true, franchiseKm: 10, zones: [], cantons: [],
       },
       insectes: [
         { id: 'guepes', libelle: 'Guêpes' },
@@ -79,18 +117,30 @@
         );
       }
 
-      var lignes = B.priceIntervention(
+      /*
+        Moteur a REGLES, pas le moteur « un prix par insecte ».
+        C'est celui qui sait traiter les conditions combinees, la
+        degressivite multi-nids, les couts ponctuels et le forfait
+        negocie — tout ce qui a ete mis au point dans BillyPro.
+      */
+      var lignes = B.priceInterventionFromRules(
         {
           customerType: intervention.typeClient || 'particulier',
           nests: intervention.nids || [],
           modifierCombination: reglages.majorations || 'plus_elevee',
+          dureeMin: intervention.dureeMin,
+          distanceKm: intervention.distanceKm == null
+            ? undefined : intervention.distanceKm,
           municipalitySubsidyPerNest: intervention.aideParNid || 0,
           travelFee: dep ? dep.amount : 0,
           travelFeeLabel: dep ? dep.label : undefined,
+          degressivite: reglages.degressivite || undefined,
+          supplementsPonctuels: intervention.supplementsPonctuels || undefined,
+          prixConvenu: intervention.prixConvenu || undefined,
         },
-        reglages.tarifs || [],
-        reglages.modificateurs || [],
-        libellesInsectes(reglages),
+        (reglages.regles || []).filter(function (r) {
+          return r.isActive !== false;
+        }),
       );
 
       var totaux = B.computeTotals(
