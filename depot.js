@@ -25,22 +25,57 @@
 
   /* ---------- utilitaires ---------- */
 
+  /*
+    DEFAUT VECU, ET SERIEUX.
+
+    Ouverte par double-clic depuis le disque (file://), une page n'a
+    PAS le droit d'utiliser le stockage du navigateur : l'origine est
+    dite « opaque » et toute ecriture est refusee.
+
+    Consequences observees : rien n'etait conserve d'un rechargement a
+    l'autre, et surtout le compteur de factures repartait a zero —
+    deux factures differentes recevaient le numero F0001.
+
+    On garde donc une memoire de session en repli. Elle ne survit pas
+    a la fermeture de l'onglet, mais elle empeche le pire : deux
+    factures avec le meme numero dans une meme session. Et
+    `persistant` permet a l'ecran de PREVENIR au lieu de laisser
+    croire que tout est enregistre.
+  */
+  var memoire = {};
+  var persistant = (function () {
+    try {
+      global.localStorage.setItem(PREFIXE + 'essai', '1');
+      global.localStorage.removeItem(PREFIXE + 'essai');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  })();
+
   function lire(cle, defaut) {
     try {
+      if (!persistant) {
+        return memoire[cle] === undefined ? defaut : memoire[cle];
+      }
       var brut = global.localStorage.getItem(PREFIXE + cle);
       return brut ? JSON.parse(brut) : defaut;
     } catch (e) {
-      // Valeur abimee ou navigation privee : on repart du defaut
-      // plutot que de bloquer l'application.
+      // Valeur abimee : on repart du defaut plutot que de bloquer.
       return defaut;
     }
   }
 
   function ecrire(cle, valeur) {
+    if (!persistant) { memoire[cle] = valeur; return false; }
     try {
       global.localStorage.setItem(PREFIXE + cle, JSON.stringify(valeur));
       return true;
     } catch (e) {
+      // Quota plein : on bascule en memoire pour ne rien perdre
+      // pendant cette session.
+      persistant = false;
+      memoire[cle] = valeur;
       return false;
     }
   }
@@ -49,6 +84,9 @@
 
   function DepotLocal() {
     this.mode = 'local';
+    /** Faux quand le navigateur refuse le stockage : tout sera perdu
+        a la fermeture de l'onglet. L'ecran doit le dire. */
+    this.persistant = persistant;
   }
 
   DepotLocal.prototype.pret = function () {
@@ -65,7 +103,9 @@
   };
 
   DepotLocal.prototype.listerInterventions = function () {
-    return Promise.resolve(lire('interventions', []));
+    return Promise.resolve(lire('interventions', []).filter(function (x) {
+      return !x.supprime_le;
+    }));
   };
 
   DepotLocal.prototype.enregistrerIntervention = function (it) {
@@ -74,6 +114,33 @@
     if (i >= 0) toutes[i] = it; else toutes.push(it);
     ecrire('interventions', toutes);
     return Promise.resolve(it);
+  };
+
+  /*
+    Suppression DOUCE : la ligne est marquee, jamais effacee. Deux
+    raisons. La synchronisation doit pouvoir propager la suppression
+    aux autres appareils — une ligne disparue ne se propage pas. Et
+    une suppression par erreur reste rattrapable.
+  */
+  DepotLocal.prototype.supprimerIntervention = function (id) {
+    var toutes = lire('interventions', []);
+    var i = toutes.findIndex(function (x) { return x.id === id; });
+    if (i >= 0) {
+      toutes[i].supprime_le = new Date().toISOString();
+      ecrire('interventions', toutes);
+    }
+    return Promise.resolve(true);
+  };
+
+  /* Une equipe n'a de sens qu'en ligne : en local, chaque appareil
+     est seul avec ses donnees. */
+  DepotLocal.prototype.listerMembres = function () {
+    return Promise.resolve(null);
+  };
+
+  DepotLocal.prototype.rattacherCollegue = function () {
+    return Promise.reject(new Error(
+      'Connectez-vous d\u2019abord : une equipe suppose des donnees partagees.'));
   };
 
   DepotLocal.prototype.listerFactures = function () {
@@ -130,10 +197,42 @@
     return r;
   }
 
+  /*
+    MIROIR LOCAL.
+
+    Sans reseau, `select` echoue et l'ecran reste vide. Or les donnees
+    ont deja ete telechargees : les jeter serait absurde.
+
+    Chaque lecture reussie est donc recopiee sur l'appareil. Quand le
+    reseau manque, on ressort cette copie — en le DISANT, parce qu'un
+    agenda perime presente comme a jour est pire qu'un agenda vide.
+
+    On ne recopie que ce qui se consulte sur le terrain. Les factures
+    et les reglages suivent : sans eux, impossible de retrouver un
+    montant ou un tarif dans une cave.
+  */
   function DepotSupabase(client) {
     this.mode = 'supabase';
     this.client = client;
+    /** Vrai quand la derniere lecture a du puiser dans le miroir. */
+    this.horsLigne = false;
   }
+
+  DepotSupabase.prototype.enMiroir = function (cle, valeur) {
+    ecrire('miroir.' + cle, valeur);
+    ecrire('miroir.date', new Date().toISOString());
+    return valeur;
+  };
+
+  DepotSupabase.prototype.duMiroir = function (cle, defaut) {
+    this.horsLigne = true;
+    return lire('miroir.' + cle, defaut);
+  };
+
+  /** Date de la derniere lecture reussie, pour l'afficher. */
+  DepotSupabase.prototype.dateMiroir = function () {
+    return lire('miroir.date', null);
+  };
 
   DepotSupabase.prototype.pret = function () {
     return this.client.auth.getUser().then(function (r) {
@@ -148,11 +247,19 @@
     seule. Impossible d'ecrire chez quelqu'un d'autre, meme par erreur.
   */
   DepotSupabase.prototype.lireReglages = function () {
+    var self = this;
     return this.client.rpc('mes_reglages').then(function (r) {
       verifier(r);
+      self.horsLigne = false;
       // Une entreprise neuve a des reglages vides : on renvoie null
       // pour que le site parte de ses valeurs par defaut suisses.
-      return (r.data && Object.keys(r.data).length) ? r.data : null;
+      var v = (r.data && Object.keys(r.data).length) ? r.data : null;
+      return self.enMiroir('reglages', v);
+    }).catch(function (e) {
+      var copie = self.duMiroir('reglages', undefined);
+      // Aucune copie : on ne peut rien faire, l'erreur doit remonter.
+      if (copie === undefined) throw e;
+      return copie;
     });
   };
 
@@ -162,9 +269,15 @@
   };
 
   DepotSupabase.prototype.listerInterventions = function () {
+    var self = this;
     return this.client.from('rdvs').select('*').is('supprime_le', null)
       .order('debut_le', { ascending: false })
-      .then(function (r) { verifier(r); return r.data || []; });
+      .then(function (r) {
+        verifier(r);
+        self.horsLigne = false;
+        return self.enMiroir('interventions', r.data || []);
+      })
+      .catch(function () { return self.duMiroir('interventions', []); });
   };
 
   /*
@@ -177,10 +290,39 @@
       .then(function (r) { verifier(r); return it; });
   };
 
+  DepotSupabase.prototype.supprimerIntervention = function (id) {
+    return this.client.from('rdvs')
+      .update({ supprime_le: new Date().toISOString() }).eq('id', id)
+      .then(function (r) { verifier(r); return true; });
+  };
+
+  DepotSupabase.prototype.listerMembres = function () {
+    return this.client.from('membres').select('user_id, nom, role')
+      .then(function (r) { verifier(r); return r.data || []; });
+  };
+
+  /*
+    Rattache un compte existant a CETTE entreprise. La verification et
+    le nettoyage vivent dans PostgreSQL (fonction rattacher_collegue) :
+    le navigateur n'a pas a connaitre les identifiants internes, et ne
+    peut donc pas rattacher quelqu'un a l'entreprise d'un autre.
+  */
+  DepotSupabase.prototype.rattacherCollegue = function (email, role) {
+    return this.client.rpc('rattacher_collegue',
+      { p_email: email, p_role: role || 'terrain' })
+      .then(function (r) { verifier(r); return r.data; });
+  };
+
   DepotSupabase.prototype.listerFactures = function () {
+    var self = this;
     return this.client.from('factures').select('*')
       .order('emise_le', { ascending: false })
-      .then(function (r) { verifier(r); return r.data || []; });
+      .then(function (r) {
+        verifier(r);
+        self.horsLigne = false;
+        return self.enMiroir('factures', r.data || []);
+      })
+      .catch(function () { return self.duMiroir('factures', []); });
   };
 
   /** C'est PostgreSQL qui attribue le numero, pas le navigateur. */

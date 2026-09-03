@@ -29,6 +29,12 @@
       // TVA suisse : le taux normal est 8.1 % depuis 2024.
       tva: {
         taux: 8.1,
+        /* Numero TVA / IDE : obligatoire sur la facture d'un assujetti. */
+        numero: '',
+        /* Delai de paiement usuel en Suisse. */
+        delaiJours: 30,
+        /* Duree pendant laquelle un devis engage l'entreprise. */
+        validiteDevisJours: 30,
         // Regle metier confirmee : les tarifs affiches sont TTC.
         // La TVA se lit « dont TVA », jamais ajoutee en pied de facture.
         mode: 'inclus',
@@ -61,6 +67,24 @@
 
       /* Remise a partir du 2e nid. null = aucune. */
       degressivite: null,
+
+      /*
+        AIDES COMMUNALES ET CANTONALES.
+
+        Regle metier confirmee : une aide se configure en PARAMETRES,
+        jamais pendant la saisie d'un rendez-vous. Un client qui
+        declare « ma commune paie » ne peut pas etre verifie sur le
+        moment ; c'est l'entreprise qui sait avec qui elle a une
+        convention.
+
+        L'aide s'applique donc automatiquement quand le NPA du lieu
+        d'intervention correspond a une commune conventionnee.
+
+        Deux modes : « deduite » (retiree du total, le client paie
+        moins) ou « remboursee » (le client paie tout et se fait
+        rembourser — la ligne est affichee pour information).
+      */
+      aides: [],
 
       /* Listes parametrables, utilisees par les conditions. */
       localisations: [
@@ -123,6 +147,46 @@
         degressivite multi-nids, les couts ponctuels et le forfait
         negocie — tout ce qui a ete mis au point dans BillyPro.
       */
+      /*
+        Aides applicables, calculees a partir du LIEU et des insectes
+        traites — pas d'une saisie a la volee.
+
+        Le sous-total sert de base aux aides en pourcentage. On chiffre
+        donc une premiere fois sans aide pour l'obtenir.
+      */
+      var aideParNid = 0;
+      var aidesAppliquees = { deducted: [], informational: [] };
+      var reglesActives = (reglages.regles || []).filter(function (r) {
+        return r.isActive !== false;
+      });
+
+      if ((reglages.aides || []).length) {
+        var sansAide = B.priceInterventionFromRules({
+          customerType: intervention.typeClient || 'particulier',
+          nests: intervention.nids || [],
+          modifierCombination: reglages.majorations || 'plus_elevee',
+          degressivite: reglages.degressivite || undefined,
+        }, reglesActives);
+        var sousTotal = sansAide.reduce(function (t, l) {
+          return t + (l.amount > 0 ? l.amount : 0);
+        }, 0);
+
+        aidesAppliquees = B.computeSubsidies(reglages.aides, {
+          npa: intervention.npa || null,
+          canton: intervention.canton || null,
+          nests: intervention.nids || [],
+          subtotal: sousTotal,
+        });
+
+        // Le moteur de tarification prend une aide PAR NID : on lui
+        // transmet la part deduite, ramenee au nid.
+        var totalDeduit = aidesAppliquees.deducted.reduce(
+          function (t, a) { return t + a.amount; }, 0);
+        var nbNids = (intervention.nids || []).reduce(
+          function (t, n) { return t + (n.quantity || 1); }, 0) || 1;
+        aideParNid = Math.round(totalDeduit / nbNids);
+      }
+
       var lignes = B.priceInterventionFromRules(
         {
           customerType: intervention.typeClient || 'particulier',
@@ -131,16 +195,14 @@
           dureeMin: intervention.dureeMin,
           distanceKm: intervention.distanceKm == null
             ? undefined : intervention.distanceKm,
-          municipalitySubsidyPerNest: intervention.aideParNid || 0,
+          municipalitySubsidyPerNest: aideParNid,
           travelFee: dep ? dep.amount : 0,
           travelFeeLabel: dep ? dep.label : undefined,
           degressivite: reglages.degressivite || undefined,
           supplementsPonctuels: intervention.supplementsPonctuels || undefined,
           prixConvenu: intervention.prixConvenu || undefined,
         },
-        (reglages.regles || []).filter(function (r) {
-          return r.isActive !== false;
-        }),
+        reglesActives,
       );
 
       var totaux = B.computeTotals(
@@ -152,7 +214,13 @@
         },
       );
 
-      return { lignes: lignes, totaux: totaux, deplacement: dep };
+      return {
+        lignes: lignes, totaux: totaux, deplacement: dep,
+        aides: aidesAppliquees.deducted,
+        // « Remboursee » : le client paie tout et se fait rembourser
+        // par sa commune. Affiche pour information, jamais deduit.
+        aidesInformatives: aidesAppliquees.informational,
+      };
     } catch (e) {
       // MissingTariffError porte un message utile : « Aucun tarif de
       // base pour l'insecte X » plutot que « undefined ».
@@ -210,6 +278,13 @@
     else if (!B.isValidIban(e.iban)) manque.push('IBAN invalide');
     if (!e.npa) manque.push('NPA');
     if (!e.localite) manque.push('localité');
+    if (!e.adresse) manque.push('adresse');
+    // Un assujetti DOIT faire figurer son numero TVA sur ses factures.
+    // L'oublier rend la facture contestable par le client.
+    if (reglages && reglages.tva && reglages.tva.assujetti
+        && !String(reglages.tva.numero || '').trim()) {
+      manque.push('numéro TVA');
+    }
     return manque;
   }
 
@@ -246,7 +321,42 @@
     }
   }
 
+  /**
+   * Prepare un DEVIS.
+   *
+   * Un devis n'est pas une facture : rien n'est du, rien n'est
+   * comptabilise, et il n'y a pas de partie paiement QR — proposer un
+   * QR sur un devis inviterait le client a payer un travail pas
+   * encore fait.
+   *
+   * En revanche il engage l'entreprise sur un prix pendant une duree :
+   * la date de validite doit figurer, sinon le client peut l'invoquer
+   * six mois plus tard.
+   */
+  function preparerDevis(intervention, reglages, numero) {
+    var chiffrage = chiffrer(intervention, reglages);
+    if (chiffrage.erreur) return { erreur: chiffrage.erreur };
+
+    // Un devis n'a pas besoin d'IBAN : on ne demande que l'identite.
+    var e = (reglages && reglages.entreprise) || {};
+    if (!e.nom) return { erreur: 'Réglages incomplets : nom de l\u2019entreprise' };
+
+    var jours = (reglages.tva && reglages.tva.validiteDevisJours) || 30;
+    var etabli = new Date();
+    return {
+      numero: numero,
+      lignes: chiffrage.lignes,
+      totaux: chiffrage.totaux,
+      totalRappen: chiffrage.totaux.total,
+      totalAffiche: B.formatChf(chiffrage.totaux.total),
+      etabliLe: etabli.toISOString(),
+      valableJusquau: new Date(
+        etabli.getTime() + jours * 86400000).toISOString(),
+    };
+  }
+
   global.BillySuisse = {
+    preparerDevis: preparerDevis,
     reglagesParDefaut: reglagesParDefaut,
     chiffrer: chiffrer,
     preparerFacture: preparerFacture,

@@ -60,6 +60,26 @@
   nav button{flex:1;background:none;color:var(--brume);border:0;margin:0;
     padding:14px 4px 20px;font-size:12px;font-weight:600;border-radius:0}
   nav button.actif{color:var(--ambre)}
+  .section{border:1px solid var(--ligne);border-radius:14px;
+    margin-bottom:10px;overflow:hidden;background:var(--ardoise)}
+  .entete-section{width:100%;margin:0;border-radius:0;background:none;
+    color:var(--ivoire);font-weight:700;font-size:15px;text-align:left;
+    display:flex;justify-content:space-between;align-items:center;
+    padding:15px 14px}
+  .chevron{color:var(--brume);transition:transform .15s;font-size:20px}
+  .section.ouverte .chevron{transform:rotate(90deg)}
+  .corps-section{display:none;padding:0 14px 14px}
+  .section.ouverte .corps-section{display:block}
+  .section .carte{border:0;background:#14161a}
+  .suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .suggestions:empty{display:none}
+  .puce{background:#14161a;border:1px solid var(--ligne);color:var(--ivoire);
+    border-radius:99px;padding:7px 12px;font-size:13px;cursor:pointer;
+    width:auto;margin:0;font-weight:500}
+  #facture-entete .exp{font-size:13px;line-height:1.45}
+  #facture-entete .dest{margin-top:22px;font-size:14px;line-height:1.45}
+  #facture-entete .refs{margin-top:18px;font-size:13px;color:var(--brume)}
+  #facture-entete .mentions{margin-top:14px;font-size:12px;color:var(--brume)}
   .ecran{display:none}
   .ecran.visible{display:block}
   .ligne-facture{display:flex;justify-content:space-between;
@@ -67,6 +87,30 @@
   .pastille{display:inline-block;padding:3px 9px;border-radius:99px;
     font-size:11px;font-weight:700;background:var(--ligne);color:var(--brume)}
   #qr-affichage svg{width:100%;height:auto;background:#fff;border-radius:8px}
+  #signature{width:100%;height:180px;background:#fff;border-radius:10px;
+    touch-action:none;cursor:crosshair;display:block}
+  .signature-vue{width:100%;max-width:320px;background:#fff;border-radius:8px;
+    margin-top:8px}
+
+  /* ---- Impression ----
+     Sans cette feuille, imprimer produisait la page entiere : barre de
+     navigation, boutons, fond noir. Une facture doit sortir en noir sur
+     blanc, seule, et tenir sur une page. */
+  @media print {
+    body{background:#fff;color:#000}
+    nav,button,#etat-facture,#etat-devis,#resume-reglages,
+    .rangee{display:none !important}
+    .colonne{max-width:none;padding:0}
+    h1{display:none}
+    .carte{background:#fff;border:0;padding:0;margin:0 0 14px;
+      border-radius:0;color:#000}
+    .muted,#facture-entete .refs,#facture-entete .mentions{color:#444}
+    .ligne-facture{border-bottom:1px solid #ddd}
+    .total.gros{border-top:2px solid #000}
+    #qr-affichage{page-break-inside:avoid;margin-top:20px}
+    #qr-affichage svg{background:#fff}
+    .signature-vue{max-width:220px}
+  }
 </style>
 </head>
 <body>
@@ -91,6 +135,7 @@
 
 <!-- ============ AGENDA ============ -->
 <div id="ecran-agenda" class="colonne ecran">
+  <div id="bandeau-horsligne"></div>
   <h1 id="agenda-titre">Agenda</h1>
   <div class="rangee">
     <button id="btn-jour-avant" class="secondaire">‹</button>
@@ -103,12 +148,13 @@
 
 <!-- ============ NOUVEAU RENDEZ-VOUS ============ -->
 <div id="ecran-rdv" class="colonne ecran">
-  <h1>Nouveau rendez-vous</h1>
+  <h1 id="titre-rdv">Nouveau rendez-vous</h1>
   <p class="muted">Ce qu'on note au téléphone. Les nids et le prix se
     saisissent sur place, au moment de l'intervention.</p>
   <div class="carte">
     <label for="rdv-nom">Nom du client</label>
-    <input id="rdv-nom">
+    <input id="rdv-nom" autocomplete="off">
+    <div id="sugg-rdv-nom" class="suggestions"></div>
     <label for="rdv-tel">Téléphone</label>
     <input id="rdv-tel" type="tel" inputmode="tel">
     <div class="rangee">
@@ -126,8 +172,9 @@
       <div><label for="rdv-npa">NPA</label>
         <input id="rdv-npa" inputmode="numeric" maxlength="4"></div>
       <div style="flex:2"><label for="rdv-localite">Localité</label>
-        <input id="rdv-localite"></div>
+        <input id="rdv-localite" autocomplete="off"></div>
     </div>
+    <div id="sugg-rdv-localite" class="suggestions"></div>
     <label for="rdv-note">Ce que dit le client</label>
     <textarea id="rdv-note" rows="3"></textarea>
   </div>
@@ -150,7 +197,8 @@
   <div class="kicker">Client</div>
   <div class="carte">
     <label for="cli-nom">Nom</label>
-    <input id="cli-nom">
+    <input id="cli-nom" autocomplete="off">
+    <div id="sugg-cli-nom" class="suggestions"></div>
     <div class="rangee">
       <div>
         <label for="cli-npa">NPA</label>
@@ -158,11 +206,12 @@
       </div>
       <div style="flex:2">
         <label for="cli-localite">Localité</label>
-        <input id="cli-localite">
+        <input id="cli-localite" autocomplete="off">
       </div>
     </div>
     <label for="cli-adresse">Adresse</label>
     <input id="cli-adresse">
+    <div id="sugg-cli-localite" class="suggestions"></div>
     <label for="cli-type">Type de client</label>
     <select id="cli-type">
       <option value="particulier">Particulier</option>
@@ -182,8 +231,6 @@
     <input id="dist-km" type="number" min="0" inputmode="decimal">
     <label for="duree-min">Durée sur place (min) — facultatif</label>
     <input id="duree-min" type="number" min="0" inputmode="numeric">
-    <label for="aide-nid">Aide communale par nid (CHF) — facultatif</label>
-    <input id="aide-nid" type="number" step="0.05" inputmode="decimal">
   </div>
 
   <div class="kicker">Coûts ponctuels</div>
@@ -207,30 +254,76 @@
     <p class="muted">Renseignez un insecte pour voir le montant.</p>
   </div>
 
+  <div class="kicker">Signature du client</div>
+  <div class="carte">
+    <p class="muted">Le client confirme que l'intervention a été faite et
+      qu'il accepte le montant. Facultatif, mais utile en cas de
+      contestation.</p>
+    <canvas id="signature" width="500" height="180"></canvas>
+    <div class="rangee">
+      <button id="btn-effacer-signature" class="secondaire">Effacer</button>
+    </div>
+    <div id="etat-signature"></div>
+  </div>
+
   <button id="btn-enregistrer">Enregistrer l'intervention</button>
+  <button id="btn-devis" class="secondaire">Établir un devis</button>
+  <p class="muted">Un devis n'est pas une intervention : rien n'est
+    considéré comme fait, et rien n'est facturé. Il devient une
+    intervention le jour où le client l'accepte.</p>
   <button id="btn-annuler" class="secondaire">Annuler</button>
 </div>
 
 <!-- ============ FACTURES ============ -->
 <div id="ecran-factures" class="colonne ecran">
-  <h1>Factures</h1>
+  <h1>Documents</h1>
+  <div class="rangee">
+    <button id="onglet-factures">Factures</button>
+    <button id="onglet-devis" class="secondaire">Devis</button>
+  </div>
   <div id="liste-factures"></div>
+  <div id="liste-devis" style="display:none"></div>
 </div>
 
 <!-- ============ DETAIL FACTURE ============ -->
 <div id="ecran-facture" class="colonne ecran">
   <h1 id="facture-titre">Facture</h1>
-  <div class="carte" id="facture-detail"></div>
-  <div class="carte" id="qr-affichage"></div>
+  <div id="document-facture">
+    <div class="carte" id="facture-entete"></div>
+    <div class="carte" id="facture-detail"></div>
+    <div class="carte" id="qr-affichage"></div>
+  </div>
   <button id="btn-imprimer">Imprimer / enregistrer en PDF</button>
+  <div id="etat-facture"></div>
+  <button id="btn-annuler-facture" class="secondaire">Annuler cette facture</button>
   <button id="btn-retour-factures" class="secondaire">Retour</button>
+</div>
+
+<!-- ============ DETAIL DEVIS ============ -->
+<div id="ecran-devis" class="colonne ecran">
+  <h1 id="devis-titre">Devis</h1>
+  <div id="document-devis">
+    <div class="carte" id="devis-entete"></div>
+    <div class="carte" id="devis-detail"></div>
+  </div>
+  <div id="etat-devis"></div>
+  <button id="btn-imprimer-devis">Imprimer / enregistrer en PDF</button>
+  <button id="btn-accepter-devis">Le client accepte ce devis</button>
+  <button id="btn-refuser-devis" class="secondaire">Le client refuse</button>
+  <button id="btn-retour-devis" class="secondaire">Retour</button>
 </div>
 
 <!-- ============ REGLAGES ============ -->
 <div id="ecran-reglages" class="colonne ecran">
   <h1>Réglages</h1>
+  <div id="resume-reglages"></div>
 
-  <div class="kicker">Votre entreprise</div>
+  <div class="section" data-section="0">
+    <button class="entete-section" data-ouvrir="0">
+      <span>Votre entreprise</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
   <div class="carte">
     <label for="ent-nom">Nom</label>
     <input id="ent-nom">
@@ -245,9 +338,19 @@
     <label for="ent-iban">IBAN (pour la QR-facture)</label>
     <input id="ent-iban" placeholder="CH.. .... .... .... .... .">
     <div id="etat-iban"></div>
+    <label for="ent-tel">Téléphone</label>
+    <input id="ent-tel" type="tel" inputmode="tel">
+    <label for="ent-email">E-mail</label>
+    <input id="ent-email" type="email" inputmode="email">
+    </div>
   </div>
 
-  <div class="kicker">TVA</div>
+  <div class="section" data-section="1">
+    <button class="entete-section" data-ouvrir="1">
+      <span>TVA</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
   <div class="carte">
     <label for="tva-assujetti">Assujetti à la TVA</label>
     <select id="tva-assujetti">
@@ -256,18 +359,38 @@
     </select>
     <label for="tva-taux">Taux (%)</label>
     <input id="tva-taux" type="number" step="0.1" inputmode="decimal">
+    <label for="tva-numero">Numéro TVA / IDE</label>
+    <input id="tva-numero" placeholder="CHE-123.456.789 TVA">
+    <p class="muted">Obligatoire sur la facture si vous êtes assujetti.</p>
+    <label for="tva-delai">Payable sous (jours)</label>
+    <input id="tva-delai" type="number" inputmode="numeric">
+    <label for="devis-validite">Validité d'un devis (jours)</label>
+    <input id="devis-validite" type="number" inputmode="numeric">
     <p class="muted">Vos tarifs sont TTC : la TVA est affichée « dont TVA »,
       jamais ajoutée en bas de facture.</p>
+    </div>
   </div>
 
-  <div class="kicker">Grille tarifaire</div>
+  <div class="section" data-section="2">
+    <button class="entete-section" data-ouvrir="2">
+      <span>Grille tarifaire</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
   <p class="muted">Vous n'êtes pas obligé de facturer à l'insecte. Une règle
     dit <em>quand</em> elle s'applique et <em>combien</em> elle vaut. Sans
     condition, elle s'applique toujours — c'est un forfait.</p>
   <div id="liste-regles"></div>
   <button id="btn-ajouter-regle" class="secondaire">+ Ajouter une règle</button>
+    </div>
+  </div>
 
-  <div class="kicker">Dégressivité multi-nids</div>
+  <div class="section" data-section="3">
+    <button class="entete-section" data-ouvrir="3">
+      <span>Dégressivité multi-nids</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
   <div class="carte">
     <label for="deg-type">Remise à partir du 2<sup>e</sup> nid</label>
     <select id="deg-type">
@@ -279,18 +402,45 @@
     <input id="deg-valeur" type="number" step="0.05" inputmode="decimal">
     <label for="deg-apartir">À partir du nid n°</label>
     <input id="deg-apartir" type="number" min="2" value="2" inputmode="numeric">
+    </div>
   </div>
 
-  <div class="kicker">Majorations</div>
+  <div class="section" data-section="4">
+    <button class="entete-section" data-ouvrir="4">
+      <span>Majorations</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
   <div class="carte">
     <label for="maj-mode">Quand plusieurs majorations touchent le même nid</label>
     <select id="maj-mode">
       <option value="plus_elevee">Seule la plus élevée s'applique</option>
       <option value="cumul">Elles se cumulent</option>
     </select>
+    </div>
   </div>
 
-  <div class="kicker">Frais de déplacement</div>
+  <div class="section" data-section="5">
+    <button class="entete-section" data-ouvrir="5">
+      <span>Communes conventionnées</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
+  <p class="muted">Les aides se configurent ici, jamais pendant un
+    rendez-vous : un client qui dit « ma commune paie » ne peut pas être
+    vérifié sur le moment. L'aide s'applique toute seule quand le NPA du
+    lieu correspond.</p>
+  <div id="liste-aides"></div>
+  <button id="btn-ajouter-aide" class="secondaire">+ Ajouter une aide</button>
+    </div>
+  </div>
+
+  <div class="section" data-section="6">
+    <button class="entete-section" data-ouvrir="6">
+      <span>Frais de déplacement</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
   <div class="carte">
     <label for="dep-mode">Mode de facturation</label>
     <select id="dep-mode">
@@ -300,10 +450,54 @@
       <option value="cantons">Par canton</option>
     </select>
     <div id="dep-champs"></div>
+    </div>
+  </div>
+
+  <div class="section" data-section="7">
+    <button class="entete-section" data-ouvrir="7">
+      <span>Mon équipe</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+    <p class="muted">Chaque personne crée son propre compte, puis vous la
+      rattachez ici. Sans ce rattachement, elle aurait son propre agenda
+      et ses propres factures, séparés des vôtres.</p>
+    <div id="liste-membres"></div>
+    <label for="collegue-email">Adresse e-mail du collègue</label>
+    <input id="collegue-email" type="email" inputmode="email">
+    <label for="collegue-role">Son rôle</label>
+    <select id="collegue-role">
+      <option value="bureau">Bureau — prend les rendez-vous</option>
+      <option value="terrain">Terrain — intervient et facture</option>
+    </select>
+    <button id="btn-rattacher">Rattacher à mon entreprise</button>
+    <div id="etat-equipe"></div>
+    </div>
+  </div>
+
+  <div class="section" data-section="8">
+    <button class="entete-section" data-ouvrir="8">
+      <span>Sauvegarde</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
+  <div class="carte">
+    <p class="muted">Aucune sauvegarde automatique n'existe. Si vos données
+      disparaissaient, ce fichier serait le seul moyen de les retrouver.
+      En Suisse, les pièces comptables se conservent dix ans.</p>
+    <div id="etat-sauvegarde"></div>
+    <button id="btn-exporter">Enregistrer une sauvegarde</button>
+    <p class="muted">Rangez le fichier ailleurs que sur cet appareil :
+      clé USB, OneDrive, Google Drive.</p>
+    <label for="fichier-import">Restaurer depuis une sauvegarde</label>
+    <input id="fichier-import" type="file" accept="application/json,.json">
+    <div id="etat-import"></div>
+  </div>
+    </div>
   </div>
 
   <button id="btn-enregistrer-reglages">Enregistrer les réglages</button>
   <div id="etat-reglages"></div>
+
   <button id="btn-deconnexion" class="secondaire">Se déconnecter</button>
 </div>
 
@@ -349,7 +543,7 @@
 
   function montrer(nom) {
     ['connexion', 'agenda', 'rdv', 'interventions', 'nouvelle',
-     'factures', 'facture', 'reglages']
+     'factures', 'facture', 'devis', 'reglages']
       .forEach(function (e) {
         $('ecran-' + e).classList.toggle('visible', e === nom);
       });
@@ -359,6 +553,17 @@
       document.querySelectorAll('nav button'), function (b) {
         b.classList.toggle('actif', b.dataset.ecran === nom);
       });
+    // Recalcule a CHAQUE passage : « il y a 3 jours » fige au
+    // chargement resterait faux si l'application reste ouverte.
+    if (nom === 'reglages' && typeof afficherEtatSauvegarde === 'function') {
+      afficherEtatSauvegarde();
+      afficherResume();
+    }
+    // Recalcule a chaque passage : un devis qui expire aujourd'hui
+    // resterait affiche « En attente » jusqu'au rechargement.
+    if (nom === 'factures' && typeof afficherFactures === 'function') {
+      afficherFactures();
+    }
     window.scrollTo(0, 0);
   }
 
@@ -382,11 +587,19 @@
       : 'Mode local : les données restent sur cet appareil.';
 
     if (depot.mode === 'local') {
-      if (surDisque) {
+      // Le navigateur refuse le stockage sur une page ouverte depuis le
+      // disque. Ne PAS le dire laisserait croire que tout est
+      // enregistre, alors que le premier rechargement efface tout.
+      if (depot.persistant === false) {
+        message('etat-reglages',
+          '⚠ Rien ne sera conservé. Cette page a été ouverte depuis '
+          + 'votre disque, et le navigateur y interdit l\u2019enregistrement. '
+          + 'Tout disparaîtra en rechargeant. Utilisez l\u2019adresse du '
+          + 'site publié pour travailler pour de vrai.', 'alerte');
+      } else if (surDisque) {
         message('etat-reglages',
           'Ouvert depuis votre disque : les données restent sur cet '
-          + 'appareil. Une fois le site publié, elles seront partagées '
-          + 'avec votre collègue.', 'info');
+          + 'appareil et ne sont pas partagées.', 'info');
       }
       apresConnexion();
       return;
@@ -427,6 +640,7 @@
       interventions = l || [];
       afficherAgenda();
       afficherInterventions();
+      afficherBandeauHorsLigne();
       return depot.listerFactures();
     }).then(function (f) {
       factures = f || [];
@@ -479,8 +693,13 @@
     $('ent-npa').value = e.npa || '';
     $('ent-localite').value = e.localite || '';
     $('ent-iban').value = e.iban || '';
+    $('ent-tel').value = e.telephone || '';
+    $('ent-email').value = e.email || '';
     $('tva-assujetti').value = reglages.tva.assujetti ? 'oui' : 'non';
     $('tva-taux').value = reglages.tva.taux;
+    $('tva-numero').value = reglages.tva.numero || '';
+    $('tva-delai').value = reglages.tva.delaiJours || 30;
+    $('devis-validite').value = reglages.tva.validiteDevisJours || 30;
     $('maj-mode').value = reglages.majorations || 'plus_elevee';
     var deg = reglages.degressivite;
     $('deg-type').value = deg ? deg.type : '';
@@ -489,6 +708,10 @@
     $('deg-apartir').value = (deg && deg.aPartirDu) || 2;
     afficherRegles();
     afficherDeplacement();
+    afficherAides();
+    afficherEtatSauvegarde();
+    afficherMembres();
+    afficherResume();
     verifierIban();
   }
 
@@ -505,6 +728,162 @@
     }
   }
   $('ent-iban').addEventListener('blur', verifierIban);
+
+  /* ---------- Sauvegarde et restauration ---------- */
+
+  /*
+    Le plan gratuit de Supabase ne fait AUCUNE sauvegarde. Tout repose
+    sur un fournisseur qui ne doit rien a personne, et les pieces
+    comptables suisses se conservent dix ans.
+
+    Le contenu du fichier est separe de son telechargement : le
+    premier se verifie, le second depend du navigateur.
+  */
+
+  var CLE_DERNIERE_SAUVEGARDE = 'billyswiss.derniereSauvegarde';
+
+  function preparerExport() {
+    return {
+      format: 'billypro-suisse',
+      version: 1,
+      exporteLe: new Date().toISOString(),
+      reglages: reglages,
+      interventions: interventions,
+      factures: factures,
+    };
+  }
+
+  /** Nom parlant : on retrouve la bonne sauvegarde des mois plus tard. */
+  function nomFichierExport(d) {
+    var x = d || new Date();
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return 'billypro-' + x.getFullYear() + '-' + p(x.getMonth() + 1)
+      + '-' + p(x.getDate()) + '-' + p(x.getHours()) + p(x.getMinutes())
+      + '.json';
+  }
+
+  function telecharger(nom, texte) {
+    try {
+      var blob = new Blob([texte], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = nom;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function marquerSauvegarde() {
+    try {
+      window.localStorage.setItem(CLE_DERNIERE_SAUVEGARDE,
+        new Date().toISOString());
+    } catch (e) { /* stockage refuse : on n'insiste pas */ }
+    afficherEtatSauvegarde();
+  }
+
+  function afficherEtatSauvegarde() {
+    var quand = null;
+    try { quand = window.localStorage.getItem(CLE_DERNIERE_SAUVEGARDE); }
+    catch (e) { /* rien */ }
+
+    if (!quand) {
+      message('etat-sauvegarde',
+        'Aucune sauvegarde enregistrée depuis cet appareil.', 'info');
+      return;
+    }
+    var jours = Math.floor(
+      (Date.now() - new Date(quand).getTime()) / 86400000);
+    var texte = 'Dernière sauvegarde : '
+      + (jours === 0 ? "aujourd'hui"
+        : jours === 1 ? 'hier' : 'il y a ' + jours + ' jours') + '.';
+    // Au-dela d'une semaine, ce n'est plus une information mais un
+    // avertissement : c'est tout ce qui serait perdu.
+    message('etat-sauvegarde', texte, jours >= 7 ? 'alerte' : 'ok');
+  }
+
+  $('btn-exporter').addEventListener('click', function () {
+    var contenu = JSON.stringify(preparerExport(), null, 2);
+    if (telecharger(nomFichierExport(), contenu)) {
+      marquerSauvegarde();
+    } else {
+      message('etat-sauvegarde',
+        'Téléchargement impossible depuis ce navigateur.', 'alerte');
+    }
+  });
+
+  /**
+   * Restauration. Volontairement AJOUT et REMPLACEMENT par identifiant,
+   * jamais effacement : restaurer une vieille sauvegarde ne doit pas
+   * faire disparaitre le travail fait depuis.
+   */
+  function appliquerImport(donnees) {
+    if (!donnees || donnees.format !== 'billypro-suisse') {
+      return { erreur: 'Ce fichier n\u2019est pas une sauvegarde BillyPro.' };
+    }
+    var ajoutes = 0, remplaces = 0;
+
+    function fusionner(existants, entrants) {
+      (entrants || []).forEach(function (e) {
+        if (!e || !e.id) return;
+        var i = existants.findIndex(function (x) { return x.id === e.id; });
+        if (i >= 0) { existants[i] = e; remplaces++; }
+        else { existants.push(e); ajoutes++; }
+      });
+    }
+
+    fusionner(interventions, donnees.interventions);
+    fusionner(factures, donnees.factures);
+    if (donnees.reglages) reglages = donnees.reglages;
+
+    return { ajoutes: ajoutes, remplaces: remplaces };
+  }
+
+  function enregistrerToutApresImport() {
+    var travaux = interventions.map(function (it) {
+      return depot.enregistrerIntervention(it);
+    }).concat(factures.map(function (f) {
+      return depot.enregistrerFacture(f);
+    }));
+    travaux.push(depot.ecrireReglages(reglages));
+    return Promise.all(travaux);
+  }
+
+  $('fichier-import').addEventListener('change', function () {
+    var fichier = $('fichier-import').files && $('fichier-import').files[0];
+    if (!fichier) return;
+    message('etat-import', '');
+
+    var lecteur = new FileReader();
+    lecteur.onload = function () {
+      var donnees;
+      try { donnees = JSON.parse(String(lecteur.result)); }
+      catch (e) {
+        message('etat-import', 'Fichier illisible.'); return;
+      }
+      var r = appliquerImport(donnees);
+      if (r.erreur) { message('etat-import', r.erreur); return; }
+
+      enregistrerToutApresImport().then(function () {
+        remplirReglages();
+        afficherAgenda();
+        afficherInterventions();
+        afficherFactures();
+        message('etat-import', 'Restauré : ' + r.ajoutes + ' ajouté(s), '
+          + r.remplaces + ' remplacé(s).', 'ok');
+      }).catch(function (e) {
+        message('etat-import', 'Restauration incomplète : ' + (e.message || e));
+      });
+    };
+    lecteur.onerror = function () {
+      message('etat-import', 'Lecture du fichier impossible.');
+    };
+    lecteur.readAsText(fichier);
+  });
 
   /* ---------- Grille tarifaire : editeur de regles ---------- */
 
@@ -737,6 +1116,225 @@
     afficherRegles();
   });
 
+  /* ---------- Mon equipe ---------- */
+
+  /*
+    Sans rattachement, le collegue qui s'inscrit obtient SA PROPRE
+    entreprise : son agenda, ses factures, separes. C'est exactement le
+    defaut du site francais, qui range tout par personne connectee.
+
+    La verification vit dans PostgreSQL : le navigateur envoie une
+    adresse e-mail, la base fait le reste. Il ne peut donc pas
+    rattacher quelqu'un a l'entreprise d'un autre.
+  */
+  function afficherMembres() {
+    if (!depot.listerMembres) return;
+    depot.listerMembres().then(function (m) {
+      if (m === null) {
+        $('liste-membres').innerHTML = '<div class="info">Disponible une '
+          + 'fois connecté : une équipe suppose des données partagées.</div>';
+        $('btn-rattacher').disabled = true;
+        return;
+      }
+      $('btn-rattacher').disabled = false;
+      $('liste-membres').innerHTML = m.length
+        ? '<div class="carte">' + m.map(function (x) {
+            return '<div class="ligne-facture"><span>'
+              + (x.nom || 'Sans nom') + '</span><span class="pastille">'
+              + (x.role === 'bureau' ? 'Bureau' : 'Terrain')
+              + '</span></div>';
+          }).join('') + '</div>'
+        : '';
+    }).catch(function (e) {
+      $('liste-membres').innerHTML = '<div class="alerte">Liste indisponible : '
+        + (e.message || e) + '</div>';
+    });
+  }
+
+  $('btn-rattacher').addEventListener('click', function () {
+    var email = $('collegue-email').value.trim();
+    if (!email) { message('etat-equipe', 'Indiquez une adresse e-mail.'); return; }
+    message('etat-equipe', '');
+    var b = $('btn-rattacher');
+    b.disabled = true;
+
+    depot.rattacherCollegue(email, $('collegue-role').value)
+      .then(function (reponse) {
+        b.disabled = false;
+        // La base repond en clair, y compris quand le compte n'existe
+        // pas encore : « la personne doit d'abord s'inscrire ».
+        var texte = String(reponse || '');
+        message('etat-equipe', texte,
+          /rattache/i.test(texte) ? 'ok' : 'info');
+        if (/rattache/i.test(texte)) $('collegue-email').value = '';
+        afficherMembres();
+      })
+      .catch(function (e) {
+        b.disabled = false;
+        message('etat-equipe', e.message || String(e));
+      });
+  });
+
+  /* ---------- Reglages : sections repliables ---------- */
+
+  /*
+    Huit sections deployees en permanence obligeaient a faire defiler
+    tout l'ecran pour changer un tarif. Regle du projet : ce qui est
+    rare doit rester ACCESSIBLE, pas VISIBLE.
+
+    Tout est replie au depart, sauf ce qui empeche encore de
+    facturer : la ou il reste quelque chose a faire, la section
+    s'ouvre d'elle-meme.
+  */
+  function brancherSections() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-ouvrir]'), function (b) {
+        b.addEventListener('click', function () {
+          b.parentNode.classList.toggle('ouverte');
+        });
+      });
+  }
+
+  function ouvrirSection(titre) {
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.section'), function (sec) {
+        var t = sec.querySelector('.entete-section span');
+        if (t && t.textContent.indexOf(titre) >= 0) {
+          sec.classList.add('ouverte');
+        }
+      });
+  }
+
+  /**
+   * Ce qui manque encore pour pouvoir facturer, en clair et en haut.
+   * Un ecran qui ne dit rien laisse chercher.
+   */
+  function afficherResume() {
+    var manque = window.BillySuisse.champsManquantsPourFacturer(reglages);
+    var sansRegle = !(reglages.regles || []).some(function (r) {
+      return r.isActive !== false && r.role === 'base';
+    });
+    if (sansRegle) manque.push('au moins une règle de prix de base');
+
+    if (!manque.length) {
+      $('resume-reglages').innerHTML =
+        '<div class="ok">Tout est réglé : vous pouvez facturer.</div>';
+      return;
+    }
+    $('resume-reglages').innerHTML = '<div class="info">Pour facturer, il '
+      + 'manque encore : ' + manque.join(', ') + '.</div>';
+
+    // On ouvre les sections concernees : chercher soi-meme ou cliquer
+    // est exactement ce qui fait perdre du temps.
+    if (manque.some(function (m) { return /entreprise|IBAN|NPA|localité/i.test(m); })) {
+      ouvrirSection('Votre entreprise');
+    }
+    if (sansRegle) ouvrirSection('Grille tarifaire');
+  }
+
+  /* ---------- Communes conventionnees ---------- */
+
+  function afficherAides() {
+    var aides = reglages.aides || [];
+    if (!aides.length) {
+      $('liste-aides').innerHTML = '<div class="carte"><p class="muted">'
+        + 'Aucune commune conventionnée.</p></div>';
+      return;
+    }
+    $('liste-aides').innerHTML = aides.map(function (a, n) {
+      return '<div class="carte">'
+        + '<label>Nom (visible sur la facture)</label>'
+        + '<input data-a="' + n + '" data-c="label" value="'
+        + (a.label || '').replace(/"/g, '&quot;') + '">'
+        + '<label>NPA couverts, séparés par une virgule</label>'
+        + '<input data-a="' + n + '" data-c="npaCodes" inputmode="numeric" '
+        + 'value="' + (a.npaCodes || []).join(', ') + '">'
+        + '<label>Insectes concernés — aucun coché = tous</label>'
+        + (reglages.insectes || []).map(function (i) {
+            return '<label style="color:var(--ivoire);display:flex;'
+              + 'align-items:center;gap:8px;margin:4px 0">'
+              + '<input type="checkbox" style="width:auto" data-a="' + n
+              + '" data-c="insecte" data-v="' + i.id + '"'
+              + ((a.insectIds || []).indexOf(i.id) >= 0 ? ' checked' : '')
+              + '>' + i.libelle + '</label>';
+          }).join('')
+        + '<div class="rangee">'
+        + '<div><label>Montant</label><input type="number" step="0.05" '
+        + 'inputmode="decimal" data-a="' + n + '" data-c="amount" value="'
+        + (a.amount == null ? '' : a.amount) + '"></div>'
+        + '<div><label>Par</label><select data-a="' + n + '" data-c="amountType">'
+        + opt('par_nid', 'nid', a.amountType)
+        + opt('par_intervention', 'intervention', a.amountType)
+        + opt('pourcent', '% du total', a.amountType)
+        + '</select></div></div>'
+        + '<label>Plafond (CHF) — vide = aucun</label>'
+        + '<input type="number" step="0.05" inputmode="decimal" data-a="' + n
+        + '" data-c="maxAmount" value="'
+        + (a.maxAmount == null ? '' : a.maxAmount) + '">'
+        + '<label>Mode</label>'
+        + '<select data-a="' + n + '" data-c="mode">'
+        + opt('deduite', 'Déduite : le client paie moins', a.mode)
+        + opt('remboursee', 'Remboursée : le client paie tout puis se fait '
+              + 'rembourser', a.mode)
+        + '</select>'
+        + '<label>Cumul avec d\u2019autres aides</label>'
+        + '<select data-a="' + n + '" data-c="cumulative">'
+        + opt('oui', 'Oui', a.cumulative ? 'oui' : 'non')
+        + opt('non', 'Non — la plus avantageuse gagne', a.cumulative ? 'oui' : 'non')
+        + '</select>'
+        + '<button class="secondaire" data-suppr-aide="' + n + '">'
+        + 'Supprimer</button></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#liste-aides [data-a]'), function (el) {
+        el.addEventListener('change', function () {
+          var a = reglages.aides[+el.dataset.a];
+          var c = el.dataset.c;
+          if (c === 'insecte') {
+            a.insectIds = a.insectIds || [];
+            var i = a.insectIds.indexOf(el.dataset.v);
+            if (el.checked && i < 0) a.insectIds.push(el.dataset.v);
+            if (!el.checked && i >= 0) a.insectIds.splice(i, 1);
+          } else if (c === 'npaCodes') {
+            // Un NPA suisse fait quatre chiffres : on ignore le reste
+            // plutot que d'enregistrer une aide qui ne s'appliquera
+            // jamais sans dire pourquoi.
+            a.npaCodes = el.value.split(',').map(function (x) {
+              return x.trim();
+            }).filter(function (x) { return /^\d{4}$/.test(x); });
+            el.value = a.npaCodes.join(', ');
+          } else if (c === 'cumulative') {
+            a.cumulative = el.value === 'oui';
+          } else if (c === 'amount') {
+            a.amount = parseFloat(el.value) || 0;
+          } else if (c === 'maxAmount') {
+            a.maxAmount = el.value === '' ? null : parseFloat(el.value);
+          } else {
+            a[c] = el.value;
+          }
+          afficherAides();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-aide]'), function (b) {
+        b.addEventListener('click', function () {
+          reglages.aides.splice(+b.dataset.supprAide, 1);
+          afficherAides();
+        });
+      });
+  }
+
+  $('btn-ajouter-aide').addEventListener('click', function () {
+    reglages.aides = reglages.aides || [];
+    reglages.aides.push({
+      id: window.Billy.uuidv7(), label: 'Commune de …', grantor: 'commune',
+      npaCodes: [], insectIds: [], amountType: 'par_nid', amount: 0,
+      maxAmount: null, mode: 'deduite', cumulative: false,
+    });
+    afficherAides();
+  });
+
   /* ---------- Frais de deplacement ---------- */
 
   function afficherDeplacement() {
@@ -859,9 +1457,14 @@
       nom: $('ent-nom').value.trim(), adresse: $('ent-adresse').value.trim(),
       numero: $('ent-numero').value.trim(), npa: $('ent-npa').value.trim(),
       localite: $('ent-localite').value.trim(), iban: $('ent-iban').value.trim(),
+      telephone: $('ent-tel').value.trim(), email: $('ent-email').value.trim(),
     };
     reglages.tva.assujetti = $('tva-assujetti').value === 'oui';
     reglages.tva.taux = parseFloat($('tva-taux').value) || 0;
+    reglages.tva.numero = $('tva-numero').value.trim();
+    reglages.tva.delaiJours = parseInt($('tva-delai').value, 10) || 30;
+    reglages.tva.validiteDevisJours =
+      parseInt($('devis-validite').value, 10) || 30;
     reglages.majorations = $('maj-mode').value;
 
     // Les regles et le deplacement sont deja a jour : chaque champ
@@ -882,6 +1485,7 @@
         ? 'Enregistré. Il manque pour facturer : ' + manque.join(', ')
         : 'Enregistré. Vous pouvez facturer.',
         manque.length ? 'info' : 'ok');
+      afficherResume();
     }).catch(function (e) {
       message('etat-reglages', 'Enregistrement impossible : ' + (e.message || e));
     });
@@ -1007,6 +1611,163 @@
     afficherCouts();
   });
 
+  /* ---------- Ce que l'application a deja vu ---------- */
+
+  /*
+    Aucun repertoire a saisir : les clients et les localites sont
+    DEDUITS de ce qui a deja ete enregistre. La deuxieme fois qu'un
+    client appelle, il est propose des la troisieme lettre.
+
+    ATTENTION — piege deja rencontre dans BillyPro et repete ici si
+    l'on n'y prend pas garde : la liste ne doit PAS etre masquee par
+    la frappe elle-meme. Un champ qui sert a la fois de saisie et de
+    signal « choix fait » cache ses propres suggestions des la
+    premiere lettre, et l'on conclut a tort que « le client n'est pas
+    en base ».
+  */
+
+  function clientsConnus() {
+    var vus = {};
+    // Du plus recent au plus ancien : une adresse qui a change doit
+    // primer sur l'ancienne.
+    interventions.slice().sort(function (a, b) {
+      return String(b.debut_le).localeCompare(String(a.debut_le));
+    }).forEach(function (it) {
+      var d = it.donnees || {};
+      var nom = (d.clientNom || '').trim();
+      if (!nom || vus[nom.toLowerCase()]) return;
+      vus[nom.toLowerCase()] = {
+        nom: nom, telephone: d.telephone || '',
+        adresse: it.adresse || '', npa: it.npa || '',
+        localite: it.localite || '',
+      };
+    });
+    return Object.keys(vus).map(function (k) { return vus[k]; });
+  }
+
+  function localitesConnues() {
+    var vues = {};
+    interventions.forEach(function (it) {
+      var l = (it.localite || '').trim();
+      if (!l) return;
+      var cle = (it.npa || '') + '|' + l.toLowerCase();
+      if (!vues[cle]) vues[cle] = { npa: it.npa || '', localite: l };
+    });
+    return Object.keys(vues).map(function (k) { return vues[k]; });
+  }
+
+  function sansAccent(t) {
+    return String(t).toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  /**
+   * Affiche des puces cliquables sous un champ.
+   * `remplir` recoit l'element choisi.
+   */
+  function proposer(zoneId, elements, libelle, remplir) {
+    var zone = $(zoneId);
+    if (!zone) return;
+    if (!elements.length) { zone.innerHTML = ''; return; }
+    zone.innerHTML = elements.slice(0, 6).map(function (e, i) {
+      return '<button type="button" class="puce" data-i="' + i + '">'
+        + libelle(e) + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(zone.querySelectorAll('.puce'), function (b) {
+      b.addEventListener('click', function () {
+        remplir(elements[+b.dataset.i]);
+        zone.innerHTML = '';
+      });
+    });
+  }
+
+  function brancherSuggestionClient(champId, zoneId, remplir) {
+    var champ = $(champId);
+    if (!champ) return;
+    champ.addEventListener('input', function () {
+      var q = sansAccent(champ.value.trim());
+      // Deux lettres : en dessous, la liste serait trop longue pour
+      // etre utile.
+      if (q.length < 2) { $(zoneId).innerHTML = ''; return; }
+      var trouves = clientsConnus().filter(function (c) {
+        return sansAccent(c.nom).indexOf(q) >= 0
+          && sansAccent(c.nom) !== q;
+      });
+      proposer(zoneId, trouves, function (c) {
+        return c.nom + (c.localite ? ' · ' + c.localite : '');
+      }, remplir);
+    });
+  }
+
+  function brancherSuggestionLocalite(champNpa, champLoc, zoneId) {
+    function chercher() {
+      var qn = $(champNpa).value.trim();
+      var ql = sansAccent($(champLoc).value.trim());
+      if (qn.length < 2 && ql.length < 2) { $(zoneId).innerHTML = ''; return; }
+      var trouves = localitesConnues().filter(function (l) {
+        var okNpa = qn.length >= 2 && l.npa.indexOf(qn) === 0;
+        var okLoc = ql.length >= 2 && sansAccent(l.localite).indexOf(ql) >= 0;
+        return okNpa || okLoc;
+      }).filter(function (l) {
+        // Deja exactement saisi : plus rien a proposer.
+        return !(l.npa === qn && sansAccent(l.localite) === ql);
+      });
+      proposer(zoneId, trouves, function (l) {
+        return (l.npa ? l.npa + ' ' : '') + l.localite;
+      }, function (l) {
+        $(champNpa).value = l.npa;
+        $(champLoc).value = l.localite;
+        $(champLoc).dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+    $(champNpa).addEventListener('input', chercher);
+    $(champLoc).addEventListener('input', chercher);
+  }
+
+  brancherSuggestionClient('rdv-nom', 'sugg-rdv-nom', function (c) {
+    $('rdv-nom').value = c.nom;
+    if (c.telephone) $('rdv-tel').value = c.telephone;
+    if (c.adresse) $('rdv-adresse').value = c.adresse;
+    if (c.npa) $('rdv-npa').value = c.npa;
+    if (c.localite) $('rdv-localite').value = c.localite;
+  });
+
+  brancherSuggestionClient('cli-nom', 'sugg-cli-nom', function (c) {
+    $('cli-nom').value = c.nom;
+    if (c.adresse) $('cli-adresse').value = c.adresse;
+    if (c.npa) $('cli-npa').value = c.npa;
+    if (c.localite) $('cli-localite').value = c.localite;
+    $('cli-npa').dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  brancherSuggestionLocalite('rdv-npa', 'rdv-localite', 'sugg-rdv-localite');
+  brancherSuggestionLocalite('cli-npa', 'cli-localite', 'sugg-cli-localite');
+
+  /* ---------- Etat de la connexion ---------- */
+
+  /*
+    Sans reseau, les donnees affichees viennent de la copie locale.
+    Le DIRE n'est pas un detail : un agenda perime presente comme a
+    jour ferait manquer un rendez-vous pris le matin meme par le
+    collegue.
+  */
+  function afficherBandeauHorsLigne() {
+    var zone = $('bandeau-horsligne');
+    if (!zone) return;
+    if (!depot || !depot.horsLigne) { zone.innerHTML = ''; return; }
+
+    var quand = depot.dateMiroir && depot.dateMiroir();
+    var texte = 'Sans réseau — données de la dernière synchronisation';
+    if (quand) {
+      var d = new Date(quand);
+      texte += ' (' + d.toLocaleDateString('fr-CH') + ' à '
+        + d.toLocaleTimeString('fr-CH',
+            { hour: '2-digit', minute: '2-digit' }) + ')';
+    }
+    texte += '. Vous pouvez consulter, pas encore enregistrer.';
+    zone.innerHTML = '<div class="alerte">' + texte + '</div>';
+  }
+
   /* ---------- Agenda ---------- */
 
   /*
@@ -1071,6 +1832,11 @@
         + (d.telephone ? ' · ' + d.telephone : '') + '</div>'
         + (d.note ? '<div class="muted">« ' + d.note + ' »</div>' : '')
         + '<button data-demarrer="' + it.id + '">Faire l\u2019intervention</button>'
+        + '<div class="rangee">'
+        + '<button class="secondaire" data-modifier-rdv="' + it.id + '">'
+        + 'Modifier</button>'
+        + '<button class="secondaire" data-suppr-rdv="' + it.id + '">'
+        + 'Supprimer</button></div>'
         + '</div>';
     }).join('');
 
@@ -1080,6 +1846,34 @@
           ouvrirInterventionDepuisRdv(b.dataset.demarrer);
         });
       });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-modifier-rdv]'), function (b) {
+        b.addEventListener('click', function () {
+          ouvrirFormulaireRdv(b.dataset.modifierRdv);
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-rdv]'), function (b) {
+        b.addEventListener('click', function () {
+          supprimerLigne(b.dataset.supprRdv, 'ce rendez-vous');
+        });
+      });
+  }
+
+  /**
+   * Suppression douce, avec confirmation.
+   * Un rendez-vous efface par megarde pendant qu'on tient le telephone
+   * ne doit pas partir sur un simple frolement.
+   */
+  function supprimerLigne(id, quoi) {
+    if (!window.confirm('Supprimer ' + quoi + ' ?')) return;
+    depot.supprimerIntervention(id).then(function () {
+      interventions = interventions.filter(function (x) { return x.id !== id; });
+      afficherAgenda();
+      afficherInterventions();
+    }).catch(function (e) {
+      window.alert('Suppression impossible : ' + (e.message || e));
+    });
   }
 
   $('btn-jour-avant').addEventListener('click', function () {
@@ -1094,14 +1888,44 @@
 
   /* ---------- Prise de rendez-vous ---------- */
 
-  $('btn-nouveau-rdv').addEventListener('click', function () {
-    ['rdv-nom', 'rdv-tel', 'rdv-adresse', 'rdv-npa', 'rdv-localite', 'rdv-note']
-      .forEach(function (i) { $(i).value = ''; });
-    $('rdv-date').value = cleJour(jourAffiche);
-    $('rdv-heure').value = '09:00';
-    $('rdv-duree').value = 45;
+  /** Rendez-vous en cours de modification, ou null pour une creation. */
+  var rdvEnEdition = null;
+
+  function ouvrirFormulaireRdv(id) {
+    rdvEnEdition = id
+      ? interventions.find(function (x) { return x.id === id; })
+      : null;
     message('etat-rdv', '');
+
+    if (!rdvEnEdition) {
+      ['rdv-nom', 'rdv-tel', 'rdv-adresse', 'rdv-npa', 'rdv-localite',
+       'rdv-note'].forEach(function (i) { $(i).value = ''; });
+      $('rdv-date').value = cleJour(jourAffiche);
+      $('rdv-heure').value = '09:00';
+      $('rdv-duree').value = 45;
+      $('titre-rdv').textContent = 'Nouveau rendez-vous';
+    } else {
+      var d = rdvEnEdition.donnees || {};
+      var debut = new Date(rdvEnEdition.debut_le);
+      $('rdv-nom').value = d.clientNom || '';
+      $('rdv-tel').value = d.telephone || '';
+      $('rdv-date').value = cleJour(debut);
+      $('rdv-heure').value = String(debut.getHours()).padStart(2, '0')
+        + ':' + String(debut.getMinutes()).padStart(2, '0');
+      $('rdv-duree').value = rdvEnEdition.duree_min || 45;
+      $('rdv-adresse').value = rdvEnEdition.adresse || '';
+      $('rdv-npa').value = rdvEnEdition.npa || '';
+      $('rdv-localite').value = rdvEnEdition.localite || '';
+      $('rdv-note').value = d.note || '';
+      $('titre-rdv').textContent = 'Modifier le rendez-vous';
+    }
+    $('sugg-rdv-nom').innerHTML = '';
+    $('sugg-rdv-localite').innerHTML = '';
     montrer('rdv');
+  }
+
+  $('btn-nouveau-rdv').addEventListener('click', function () {
+    ouvrirFormulaireRdv(null);
   });
 
   $('btn-annuler-rdv').addEventListener('click', function () {
@@ -1124,7 +1948,9 @@
     }
 
     var ligne = {
-      id: window.Billy.uuidv7(),
+      // En modification, on GARDE l'identifiant : sinon on creerait un
+      // second rendez-vous et l'ancien resterait dans l'agenda.
+      id: rdvEnEdition ? rdvEnEdition.id : window.Billy.uuidv7(),
       debut_le: debut.toISOString(),
       duree_min: parseInt($('rdv-duree').value, 10) || 45,
       statut: 'planifie',
@@ -1139,7 +1965,9 @@
     };
 
     depot.enregistrerIntervention(ligne).then(function () {
-      interventions.unshift(ligne);
+      var i = interventions.findIndex(function (x) { return x.id === ligne.id; });
+      if (i >= 0) interventions[i] = ligne; else interventions.unshift(ligne);
+      rdvEnEdition = null;
       jourAffiche = new Date(ligne.debut_le);
       afficherAgenda();
       afficherInterventions();
@@ -1166,16 +1994,127 @@
     $('cli-npa').value = it.npa || '';
     $('cli-localite').value = it.localite || '';
     $('cli-adresse').value = it.adresse || '';
-    ['dist-km', 'duree-min', 'aide-nid', 'convenu-total', 'convenu-motif']
+    ['dist-km', 'duree-min', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
-    $('duree-min').value = it.duree_min || '';
-    nidsSaisie = [nidVide()];
-    coutsSaisie = [];
+    // Reprise d'une intervention DEJA saisie : on recharge ce qui a
+    // ete note, sinon « Modifier » effacerait tout le travail.
+    $('dist-km').value = d.distanceKm == null ? '' : d.distanceKm;
+    $('duree-min').value = d.dureeMin || it.duree_min || '';
+    if (d.prixConvenu) {
+      $('convenu-total').value = d.prixConvenu.total / 100;
+      $('convenu-motif').value = d.prixConvenu.motif || '';
+    }
+    $('cli-type').value = d.typeClient || 'particulier';
+    nidsSaisie = (d.nids && d.nids.length)
+      ? d.nids.map(function (n) {
+          return { insectId: n.insectId, quantity: n.quantity,
+                   locationId: n.locationId || '', heightId: n.heightId || '' };
+        })
+      : [nidVide()];
+    coutsSaisie = (d.supplementsPonctuels || []).map(function (c) {
+      return { label: c.label, amount: c.amount };
+    });
+    // Une signature deja recueillie n'est pas redessinable : on la
+    // conserve telle quelle plutot que de la perdre a la reprise.
+    effacerSignature();
+    if (d.signature) {
+      signatureVide = false;
+      signatureConservee = d.signature;
+      message('etat-signature', 'Signature déjà recueillie le '
+        + new Date(d.signeeLe || Date.now()).toLocaleDateString('fr-CH')
+        + '.', 'ok');
+    } else { signatureConservee = null; }
     afficherNids();
     afficherCouts();
     rafraichirChiffrage();
     montrer('nouvelle');
   }
+
+  /* ---------- Signature du client ---------- */
+
+  /*
+    Un canevas ou le client signe au doigt. `pointer events` couvre le
+    doigt, le stylet et la souris avec le meme code.
+
+    La signature est rangee comme une image dans l'intervention, puis
+    reprise sur la facture. Ce n'est pas une signature electronique
+    qualifiee au sens de la loi suisse : c'est une preuve d'usage,
+    comme un bon de livraison signe. Utile en cas de contestation,
+    pas opposable comme un acte notarie.
+  */
+  var signatureVide = true;
+  /** Signature reprise d'une intervention deja enregistree. */
+  var signatureConservee = null;
+
+  function contexteSignature() {
+    var c = $('signature');
+    // jsdom et les navigateurs tres anciens n'ont pas de canevas :
+    // l'application doit rester utilisable sans signature.
+    if (!c || typeof c.getContext !== 'function') return null;
+    try { return c.getContext('2d'); } catch (e) { return null; }
+  }
+
+  function effacerSignature() {
+    var ctx = contexteSignature();
+    if (ctx) ctx.clearRect(0, 0, $('signature').width, $('signature').height);
+    signatureVide = true;
+    signatureConservee = null;
+    message('etat-signature', '');
+  }
+
+  function signatureActuelle() {
+    if (signatureConservee) return signatureConservee;
+    if (signatureVide) return null;
+    var c = $('signature');
+    try { return c.toDataURL('image/png'); } catch (e) { return null; }
+  }
+
+  (function brancherSignature() {
+    var c = $('signature');
+    if (!c || typeof c.addEventListener !== 'function') return;
+    var dessine = false;
+
+    function point(ev) {
+      var r = c.getBoundingClientRect();
+      // Le canevas est etire par le CSS : sans ce rapport, le trait
+      // apparaitrait decale de la position du doigt.
+      return {
+        x: (ev.clientX - r.left) * (c.width / (r.width || c.width)),
+        y: (ev.clientY - r.top) * (c.height / (r.height || c.height)),
+      };
+    }
+
+    c.addEventListener('pointerdown', function (ev) {
+      var ctx = contexteSignature();
+      if (!ctx) return;
+      dessine = true;
+      if (c.setPointerCapture) { try { c.setPointerCapture(ev.pointerId); } catch (e) {} }
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#111';
+      ctx.beginPath();
+      var p = point(ev);
+      ctx.moveTo(p.x, p.y);
+      ev.preventDefault();
+    });
+
+    c.addEventListener('pointermove', function (ev) {
+      if (!dessine) return;
+      var ctx = contexteSignature();
+      if (!ctx) return;
+      var p = point(ev);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      signatureVide = false;
+      ev.preventDefault();
+    });
+
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (n) {
+      c.addEventListener(n, function () { dessine = false; });
+    });
+  })();
+
+  $('btn-effacer-signature').addEventListener('click', effacerSignature);
 
   /* ---------- Liste des interventions ---------- */
 
@@ -1199,12 +2138,29 @@
         + '</span><div class="muted">' + quand.toLocaleDateString('fr-CH')
         + ' · ' + ((it.npa || '') + ' ' + (it.localite || '')).trim() + '</div>'
         + (d.facturee ? ''
-          : '<button data-facturer="' + it.id + '">Facturer</button>')
+          : '<button data-facturer="' + it.id + '">Facturer</button>'
+            + '<div class="rangee">'
+            + '<button class="secondaire" data-modifier-it="' + it.id + '">'
+            + 'Modifier</button>'
+            + '<button class="secondaire" data-suppr-it="' + it.id + '">'
+            + 'Supprimer</button></div>')
         + '</div>';
     }).join('');
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-facturer]'), function (b) {
         b.addEventListener('click', function () { facturer(b.dataset.facturer); });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-modifier-it]'), function (b) {
+        b.addEventListener('click', function () {
+          ouvrirInterventionDepuisRdv(b.dataset.modifierIt);
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-it]'), function (b) {
+        b.addEventListener('click', function () {
+          supprimerLigne(b.dataset.supprIt, 'cette intervention');
+        });
       });
   }
 
@@ -1213,10 +2169,13 @@
   $('btn-nouvelle').addEventListener('click', function () {
     rdvEnCours = null;
     ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'dist-km',
-     'duree-min', 'aide-nid', 'convenu-total', 'convenu-motif']
+     'duree-min', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     nidsSaisie = [nidVide()];
     coutsSaisie = [];
+    effacerSignature();
+    $('sugg-cli-nom').innerHTML = '';
+    $('sugg-cli-localite').innerHTML = '';
     afficherNids();
     afficherCouts();
     rafraichirChiffrage();
@@ -1245,8 +2204,6 @@
       distanceKm: $('dist-km').value ? parseFloat($('dist-km').value) : null,
       dureeMin: $('duree-min').value
         ? parseInt($('duree-min').value, 10) : undefined,
-      aideParNid: $('aide-nid').value
-        ? window.Billy.chf(parseFloat($('aide-nid').value)) : 0,
       supplementsPonctuels: coutsSaisie.filter(function (c) {
         return c.amount > 0;
       }).map(function (c) { return { label: c.label, amount: c.amount }; }),
@@ -1254,6 +2211,8 @@
         ? { total: window.Billy.chf(convenu),
             motif: $('convenu-motif').value.trim() || undefined }
         : undefined,
+      signature: signatureActuelle(),
+      signeeLe: signatureVide ? undefined : new Date().toISOString(),
     };
   }
 
@@ -1276,11 +2235,18 @@
         + reglages.tva.taux + ' %</span><span>'
         + window.Billy.formatChf(r.totaux.vat) + '</span></div>';
     }
+    // Aide « remboursee » : le client paie tout et se fait rembourser.
+    // Elle n'est PAS deduite ; l'afficher evite qu'il croie a un oubli.
+    (r.aidesInformatives || []).forEach(function (a) {
+      h += '<div class="total muted"><span>' + a.rule.label
+        + ' (à demander par le client)</span><span>−'
+        + window.Billy.formatChf(a.amount) + '</span></div>';
+    });
     $('carte-chiffrage').innerHTML = h;
   }
 
-  ['dist-km', 'duree-min', 'aide-nid', 'convenu-total', 'convenu-motif',
-   'cli-type'].forEach(function (id) {
+  ['dist-km', 'duree-min', 'convenu-total', 'convenu-motif',
+   'cli-npa', 'cli-type'].forEach(function (id) {
     $(id).addEventListener('change', rafraichirChiffrage);
     $(id).addEventListener('input', rafraichirChiffrage);
   });
@@ -1359,14 +2325,18 @@
   }
 
   function afficherFactures() {
-    if (!factures.length) {
+    afficherDevis();
+    var liste = lesFactures();
+    if (!liste.length) {
       $('liste-factures').innerHTML =
         '<div class="carte"><p class="muted">Aucune facture.</p></div>';
       return;
     }
-    $('liste-factures').innerHTML = factures.map(function (f) {
+    $('liste-factures').innerHTML = liste.map(function (f) {
+      var annulee = (f.donnees || {}).annulee;
       return '<div class="carte" data-facture="' + f.id + '">'
         + '<strong>' + f.numero + '</strong>'
+        + (annulee ? ' <span class="pastille">Annulée</span>' : '')
         + '<div class="muted">'
         + ((f.donnees && f.donnees.client && f.donnees.client.clientNom) || '')
         + ' · ' + window.Billy.formatChf(f.total_rappen) + ' CHF</div></div>';
@@ -1381,10 +2351,53 @@
       });
   }
 
+  function afficherDevis() {
+    var liste = lesDevis();
+    if (!liste.length) {
+      $('liste-devis').innerHTML =
+        '<div class="carte"><p class="muted">Aucun devis.</p></div>';
+      return;
+    }
+    var aujourdhui = Date.now();
+    $('liste-devis').innerHTML = liste.map(function (d) {
+      var don = d.donnees || {};
+      var etat = don.etat || 'envoye';
+      // Un devis perime ne doit pas etre presente comme encore
+      // valable : le prix n'engage plus l'entreprise.
+      var perime = etat === 'envoye' && don.valableJusquau
+        && new Date(don.valableJusquau).getTime() < aujourdhui;
+      return '<div class="carte" data-devis="' + d.id + '">'
+        + '<strong>' + d.numero + '</strong> <span class="pastille">'
+        + (etat === 'accepte' ? 'Accepté' : etat === 'refuse' ? 'Refusé'
+          : perime ? 'Expiré' : 'En attente') + '</span>'
+        + '<div class="muted">'
+        + ((don.client && don.client.clientNom) || '')
+        + ' · ' + window.Billy.formatChf(d.total_rappen) + ' CHF</div></div>';
+    }).join('');
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-devis]'), function (c) {
+        c.addEventListener('click', function () {
+          ouvrirDevis(factures.find(function (x) {
+            return x.id === c.dataset.devis;
+          }));
+        });
+      });
+  }
+
+  var factureAffichee = null;
+
   function ouvrirFacture(f) {
     if (!f) return;
-    $('facture-titre').textContent = 'Facture ' + f.numero;
+    factureAffichee = f;
+    var annulee = (f.donnees || {}).annulee;
+    $('facture-titre').textContent = 'Facture ' + f.numero
+      + (annulee ? ' — ANNULÉE' : '');
+    message('etat-facture', annulee
+      ? 'Facture annulée : ' + (f.donnees.motifAnnulation || '')
+      : '', 'info');
+    $('btn-annuler-facture').style.display = annulee ? 'none' : 'block';
     var d = f.donnees || {};
+    ecrireEnteteFacture(f, d);
     var h = (d.lignes || []).map(function (l) {
       return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
         + window.Billy.formatChf(l.amount) + '</span></div>';
@@ -1397,6 +2410,16 @@
     }
     $('facture-detail').innerHTML = h;
 
+    var sig = (d.client || {}).signature;
+    if (sig) {
+      $('facture-detail').innerHTML += '<p class="muted" '
+        + 'style="margin-top:14px">Signé par le client le '
+        + new Date((d.client || {}).signeeLe || f.emise_le)
+            .toLocaleDateString('fr-CH')
+        + '</p><img class="signature-vue" alt="Signature du client" src="'
+        + sig + '">';
+    }
+
     var qr = window.BillySuisse.partiePaiementQR(
       { totalRappen: f.total_rappen, reference: f.reference_qr },
       reglages, d.client, window.SwissQRBill);
@@ -1406,10 +2429,278 @@
     montrer('facture');
   }
 
+  /*
+    ANNULER une facture, jamais la supprimer.
+
+    En comptabilite suisse, une facture emise porte un numero qui doit
+    rester tracable : un trou dans la numerotation est un signal
+    d'alerte lors d'un controle. On marque donc la facture annulee, on
+    conserve son numero, et l'intervention redevient facturable.
+
+    C'est aussi pour cela que le numero vient d'un compteur qui ne
+    recule jamais : la facture suivante prendra le numero d'apres, pas
+    celui qu'on vient d'annuler.
+  */
+  $('btn-annuler-facture').addEventListener('click', function () {
+    var f = factureAffichee;
+    if (!f) return;
+    if ((f.donnees || {}).annulee) return;
+    if (!window.confirm('Annuler la facture ' + f.numero + ' ?\n\n'
+      + 'Son numero est conserve : il ne sera pas reattribue.')) return;
+
+    var motif = window.prompt('Motif de l\u2019annulation (visible sur la facture)')
+      || 'Annulée';
+    f.donnees = f.donnees || {};
+    f.donnees.annulee = true;
+    f.donnees.motifAnnulation = motif;
+    f.donnees.annuleeLe = new Date().toISOString();
+
+    depot.enregistrerFacture(f).then(function () {
+      // L'intervention redevient facturable : le travail a bien eu
+      // lieu, c'est la facture qui etait fausse.
+      var it = interventions.find(function (x) { return x.id === f.rdv_id; });
+      if (it) {
+        it.donnees = it.donnees || {};
+        it.donnees.facturee = false;
+        return depot.enregistrerIntervention(it);
+      }
+    }).then(function () {
+      afficherFactures();
+      afficherInterventions();
+      ouvrirFacture(f);
+    }).catch(function (e) {
+      message('etat-facture', 'Annulation impossible : ' + (e.message || e));
+    });
+  });
+
+  /*
+    En-tete du document.
+
+    Une facture suisse doit porter : qui l'emet et ou, a qui elle
+    s'adresse, sa date, son numero, et le numero TVA de l'emetteur
+    s'il est assujetti. Sans ces mentions, le client peut la
+    contester — et l'administration aussi.
+  */
+  function ecrireEnteteFacture(f, d) {
+    var delai = (reglages.tva && reglages.tva.delaiJours) || 30;
+    ecrireEnteteDocument('facture-entete', f, d, {
+      titre: 'Facture ' + f.numero,
+      dateLibelle: 'Date',
+      echeanceLibelle: 'Payable jusqu\u2019au',
+      echeance: new Date(
+        new Date(f.emise_le || Date.now()).getTime() + delai * 86400000
+      ).toISOString(),
+    });
+  }
+
+  /** En-tete commun aux factures et aux devis. */
+  function ecrireEnteteDocument(cible, f, d, opts) {
+    var e = reglages.entreprise || {};
+    var c = d.client || {};
+    var emise = new Date(f.emise_le || Date.now());
+    var echeance = new Date(opts.echeance || emise);
+    var jour = function (x) { return x.toLocaleDateString('fr-CH'); };
+
+    var h = '<div class="exp"><strong>' + (e.nom || '') + '</strong><br>'
+      + [e.adresse, e.numero].filter(Boolean).join(' ') + '<br>'
+      + [e.npa, e.localite].filter(Boolean).join(' ')
+      + (e.telephone ? '<br>' + e.telephone : '')
+      + (e.email ? '<br>' + e.email : '')
+      + '</div>';
+
+    h += '<div class="dest">' + (c.clientNom || '') + '<br>'
+      + (c.adresse || '') + '<br>'
+      + [c.npa, c.localite].filter(Boolean).join(' ') + '</div>';
+
+    h += '<div class="refs"><strong style="color:var(--ivoire);'
+      + 'font-size:16px">' + opts.titre + '</strong><br>'
+      + opts.dateLibelle + ' : ' + jour(emise) + '<br>'
+      + opts.echeanceLibelle + ' ' + jour(echeance) + '</div>';
+
+    var mentions = [];
+    if (reglages.tva && reglages.tva.assujetti && reglages.tva.numero) {
+      mentions.push('N° TVA : ' + reglages.tva.numero);
+    }
+    if (reglages.tva && reglages.tva.assujetti) {
+      // Regle metier confirmee : les tarifs sont TTC. Le dire evite
+      // qu'un client professionnel ajoute la TVA de son cote.
+      mentions.push('Montants en CHF, TVA ' + reglages.tva.taux
+        + ' % comprise.');
+    } else {
+      mentions.push('Non assujetti à la TVA.');
+    }
+    if ((d.client || {}).signature) {
+      mentions.push('Intervention confirmée par la signature du client.');
+    }
+    h += '<div class="mentions">' + mentions.join('<br>') + '</div>';
+
+    if ((f.donnees || {}).annulee) {
+      h += '<div class="alerte">FACTURE ANNULÉE — '
+        + (f.donnees.motifAnnulation || '') + '</div>';
+    }
+    $(cible).innerHTML = h;
+  }
+
   $('btn-retour-factures').addEventListener('click', function () {
     montrer('factures');
   });
   $('btn-imprimer').addEventListener('click', function () { window.print(); });
+
+  /* ---------- Devis ---------- */
+
+  /*
+    Un devis vit dans la meme table que les factures, distingue par sa
+    serie « D ». Il a donc son propre compteur — D0001, D0002 — et ne
+    prend jamais un numero de facture.
+
+    Il n'est PAS comptabilise : c'est une proposition de prix, valable
+    un temps donne. Le jour ou le client accepte, il devient une
+    intervention a facturer.
+  */
+  var devisAffiche = null;
+
+  function estDevis(d) { return d.serie === 'D'; }
+  function lesDevis() { return factures.filter(estDevis); }
+  function lesFactures() { return factures.filter(function (f) {
+    return !estDevis(f); }); }
+
+  $('btn-devis').addEventListener('click', function () {
+    var it = interventionDepuisFormulaire();
+    if (!it.clientNom) {
+      message('carte-chiffrage', 'Le nom du client est nécessaire.');
+      return;
+    }
+    depot.prochainNumeroFacture('D').then(function (numero) {
+      var d = window.BillySuisse.preparerDevis(it, reglages, numero);
+      if (d.erreur) { window.alert(d.erreur); return; }
+
+      var ligne = {
+        id: window.Billy.uuidv7(), rdv_id: null, numero: d.numero,
+        annee: new Date().getFullYear(), serie: 'D',
+        total_rappen: d.totalRappen, reference_qr: null,
+        emise_le: d.etabliLe,
+        donnees: {
+          lignes: d.lignes, totaux: d.totaux, client: it,
+          valableJusquau: d.valableJusquau, etat: 'envoye',
+        },
+      };
+      return depot.enregistrerFacture(ligne).then(function () {
+        factures.unshift(ligne);
+        afficherFactures();
+        ouvrirDevis(ligne);
+      });
+    }).catch(function (e) {
+      window.alert('Devis impossible : ' + (e.message || e));
+    });
+  });
+
+  function ouvrirDevis(d) {
+    if (!d) return;
+    devisAffiche = d;
+    var don = d.donnees || {};
+    var etat = don.etat || 'envoye';
+    $('devis-titre').textContent = 'Devis ' + d.numero
+      + (etat === 'accepte' ? ' — accepté'
+        : etat === 'refuse' ? ' — refusé' : '');
+
+    ecrireEnteteDocument('devis-entete', d, don, {
+      titre: 'Devis ' + d.numero,
+      dateLibelle: 'Établi le',
+      echeanceLibelle: 'Valable jusqu\u2019au',
+      echeance: don.valableJusquau,
+      sansIban: true,
+    });
+
+    var h = (don.lignes || []).map(function (l) {
+      return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
+        + window.Billy.formatChf(l.amount) + '</span></div>';
+    }).join('');
+    h += '<div class="total gros"><span>Total</span><span>'
+      + window.Billy.formatChf(d.total_rappen) + ' CHF</span></div>';
+    if (don.totaux && don.totaux.vat) {
+      h += '<div class="total muted"><span>dont TVA</span><span>'
+        + window.Billy.formatChf(don.totaux.vat) + '</span></div>';
+    }
+    // Un devis ne se paie pas : pas de partie QR. En proposer une
+    // inviterait le client a payer un travail pas encore fait.
+    h += '<p class="muted" style="margin-top:14px">Ce devis ne constitue '
+      + 'pas une facture. Aucun montant n\u2019est dû à ce stade.</p>';
+    $('devis-detail').innerHTML = h;
+
+    var termine = (etat !== 'envoye');
+    $('btn-accepter-devis').style.display = termine ? 'none' : 'block';
+    $('btn-refuser-devis').style.display = termine ? 'none' : 'block';
+    message('etat-devis', etat === 'accepte'
+      ? 'Accepté : une intervention à facturer a été créée.'
+      : etat === 'refuse' ? 'Refusé.' : '',
+      etat === 'accepte' ? 'ok' : 'info');
+    montrer('devis');
+  }
+
+  $('btn-accepter-devis').addEventListener('click', function () {
+    var d = devisAffiche;
+    if (!d || (d.donnees || {}).etat !== 'envoye') return;
+    var client = (d.donnees || {}).client || {};
+
+    // Le devis accepte devient une intervention A FACTURER, avec
+    // exactement le contenu propose : le client doit retrouver le
+    // prix sur lequel il s'est engage.
+    var it = {
+      id: window.Billy.uuidv7(),
+      debut_le: new Date().toISOString(),
+      npa: client.npa || '', localite: client.localite || '',
+      adresse: client.adresse || '',
+      statut: 'termine',
+      donnees: Object.assign({}, client, { issuDuDevis: d.numero }),
+    };
+
+    depot.enregistrerIntervention(it).then(function () {
+      interventions.unshift(it);
+      d.donnees.etat = 'accepte';
+      d.donnees.accepteLe = new Date().toISOString();
+      d.donnees.interventionId = it.id;
+      return depot.enregistrerFacture(d);
+    }).then(function () {
+      afficherInterventions();
+      afficherFactures();
+      ouvrirDevis(d);
+    }).catch(function (e) {
+      message('etat-devis', 'Enregistrement impossible : ' + (e.message || e));
+    });
+  });
+
+  $('btn-refuser-devis').addEventListener('click', function () {
+    var d = devisAffiche;
+    if (!d) return;
+    d.donnees = d.donnees || {};
+    d.donnees.etat = 'refuse';
+    depot.enregistrerFacture(d).then(function () {
+      afficherFactures();
+      ouvrirDevis(d);
+    }).catch(function (e) {
+      message('etat-devis', 'Enregistrement impossible : ' + (e.message || e));
+    });
+  });
+
+  $('btn-imprimer-devis').addEventListener('click', function () {
+    window.print();
+  });
+  $('btn-retour-devis').addEventListener('click', function () {
+    montrer('factures');
+  });
+
+  $('onglet-factures').addEventListener('click', function () {
+    $('liste-factures').style.display = 'block';
+    $('liste-devis').style.display = 'none';
+    $('onglet-factures').className = '';
+    $('onglet-devis').className = 'secondaire';
+  });
+  $('onglet-devis').addEventListener('click', function () {
+    $('liste-factures').style.display = 'none';
+    $('liste-devis').style.display = 'block';
+    $('onglet-devis').className = '';
+    $('onglet-factures').className = 'secondaire';
+  });
 
   /* ---------- Navigation ---------- */
 
@@ -1419,9 +2710,26 @@
     });
 
   window.BillyApp = { demarrer: demarrer, montrer: montrer,
+                      preparerExport: preparerExport,
+                      appliquerImport: appliquerImport,
+                      nomFichierExport: nomFichierExport,
                       etat: function () { return {
                         reglages: reglages, interventions: interventions,
                         factures: factures, mode: depot && depot.mode }; } };
+
+  brancherSections();
+
+  /*
+    Mise en reserve des fichiers, pour que la page s'ouvre sans reseau.
+    Ne fonctionne qu'en HTTPS — donc sur le site publie, pas en
+    double-clic depuis le disque. L'echec est sans consequence :
+    l'application marche, elle ne s'ouvrira simplement pas hors ligne.
+  */
+  if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js').catch(function () {});
+    });
+  }
 
   if (document.readyState !== 'loading') demarrer();
   else document.addEventListener('DOMContentLoaded', demarrer);
