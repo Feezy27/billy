@@ -21,7 +21,7 @@
 
 // Change ce numero a chaque livraison : il force le nettoyage des
 // anciennes reserves.
-const VERSION = 'billy-2026-09-04b';
+const VERSION = 'billy-2026-09-04c';
 
 const FICHIERS = [
   './',
@@ -30,6 +30,8 @@ const FICHIERS = [
   './qr-facture.js',
   './logique.js',
   './depot.js',
+  './logo.png',
+  './favicon.png',
 ];
 
 self.addEventListener('install', (ev) => {

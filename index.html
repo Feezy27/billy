@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>BillyPro Suisse</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<!-- Icone quand le site est ajoute a l'ecran d'accueil de l'iPhone. -->
+<link rel="apple-touch-icon" href="logo.png">
+<meta name="apple-mobile-web-app-title" content="BillyPro">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#101114">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
 <script src="moteur-billy.js"></script>
 <script src="qr-facture.js"></script>
@@ -80,6 +86,11 @@
   #facture-entete .dest{margin-top:22px;font-size:14px;line-height:1.45}
   #facture-entete .refs{margin-top:18px;font-size:13px;color:var(--brume)}
   #facture-entete .mentions{margin-top:14px;font-size:12px;color:var(--brume)}
+  .logo-accueil{width:120px;height:120px;object-fit:contain}
+  /* Sur la facture, le logo reste discret : c'est un document, pas
+     une affiche. */
+  .logo-facture{width:64px;height:64px;object-fit:contain;float:right;
+    margin-left:14px}
   .ecran{display:none}
   .ecran.visible{display:block}
   .ligne-facture{display:flex;justify-content:space-between;
@@ -107,6 +118,7 @@
     .muted,#facture-entete .refs,#facture-entete .mentions{color:#444}
     .ligne-facture{border-bottom:1px solid #ddd}
     .total.gros{border-top:2px solid #000}
+    .logo-facture{width:56px;height:56px}
     #qr-affichage{page-break-inside:avoid;margin-top:20px}
     #qr-affichage svg{background:#fff}
     .signature-vue{max-width:220px}
@@ -117,8 +129,11 @@
 
 <!-- ============ CONNEXION ============ -->
 <div id="ecran-connexion" class="colonne ecran visible">
-  <h1>BillyPro</h1>
-  <p class="muted">Gestion d'interventions — Suisse</p>
+  <div style="text-align:center;margin-top:24px">
+    <img src="logo.png" alt="BillyPro" class="logo-accueil">
+  </div>
+  <h1 style="text-align:center">BillyPro</h1>
+  <p class="muted" style="text-align:center">Gestion d'interventions — Suisse</p>
   <div class="carte" style="margin-top:20px">
     <label for="email">Adresse e-mail</label>
     <input id="email" type="email" autocomplete="username" inputmode="email">
@@ -2652,7 +2667,11 @@
     var echeance = new Date(opts.echeance || emise);
     var jour = function (x) { return x.toLocaleDateString('fr-CH'); };
 
-    var h = '<div class="exp"><strong>' + (e.nom || '') + '</strong><br>'
+    // Le logo n'est ajoute que s'il se charge : une image cassee sur
+    // une facture fait plus mauvais effet que pas d'image du tout.
+    var h = '<img src="logo.png" alt="" class="logo-facture" '
+      + 'onerror="this.style.display=\'none\'">'
+      + '<div class="exp"><strong>' + (e.nom || '') + '</strong><br>'
       + [e.adresse, e.numero].filter(Boolean).join(' ') + '<br>'
       + [e.npa, e.localite].filter(Boolean).join(' ')
       + (e.telephone ? '<br>' + e.telephone : '')
