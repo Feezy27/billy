@@ -2095,7 +2095,11 @@
            + (it.localite || '')).trim()
         + (d.telephone ? ' · ' + d.telephone : '') + '</div>'
         + (d.note ? '<div class="muted">« ' + d.note + ' »</div>' : '')
-        + '<button data-demarrer="' + it.id + '">Faire l\u2019intervention</button>'
+        // « Faire l'intervention » ne disait pas a quoi menait le
+        // bouton. Cet ecran est deja le recapitulatif du rendez-vous,
+        // avec le prix et la signature du client — c'est bien vers la
+        // facturation qu'il conduit.
+        + '<button data-demarrer="' + it.id + '">Facturer</button>'
         + '<div class="rangee">'
         + '<button class="secondaire" data-modifier-rdv="' + it.id + '">'
         + 'Modifier</button>'
@@ -2158,14 +2162,20 @@
     tarif applicable, donc a ANNONCER UN PRIX pendant l'appel — avec
     les frais de deplacement, pour que le client sache combien preparer.
 
-    CHAQUE CRITERE ACCEPTE PLUSIEURS CHOIX. Cas reel : le client estime
-    la hauteur « entre 12 et 16 m », ce qui chevauche deux tarifs. En
-    cochant les deux hauteurs plausibles, les DEUX prix sont annonces,
-    avec la precision qu'ils seront tranches sur place. Annoncer un
-    seul prix choisi au hasard serait pire que d'en annoncer deux avec
-    la reserve qui va avec.
+    L'INSECTE ET LE TYPE DE CLIENT SONT EXCLUSIFS : un nid est d'UNE
+    seule espece, un client a UN seul statut. Cocher « Bourdons » alors
+    que « Guêpes » l'etait deselectionne automatiquement « Guêpes » —
+    les deux ensemble n'auraient aucun sens et fausseraient le prix.
+
+    SEULE LA HAUTEUR ACCEPTE PLUSIEURS CHOIX. Cas reel : le client
+    estime la hauteur « entre 12 et 16 m », ce qui chevauche deux
+    tarifs. En cochant les deux hauteurs plausibles, les DEUX prix sont
+    annonces, avec la precision qu'ils seront tranches sur place.
   */
   var rdvChoix = { insectes: [], typesClient: [], hauteurs: [] };
+
+  /** Seule la hauteur peut recevoir plusieurs coches a la fois. */
+  var CRITERES_MULTIPLES = { hauteurs: true };
 
   function afficherChoixRdv() {
     function boutons(zoneId, items, champ) {
@@ -2186,10 +2196,20 @@
         b.addEventListener('click', function () {
           var champ = b.dataset.choix;
           var liste = rdvChoix[champ];
-          var i = liste.indexOf(b.dataset.v);
-          // Chaque case bascule independamment : cocher une seconde
-          // hauteur ne doit pas decocher la premiere.
-          if (i >= 0) liste.splice(i, 1); else liste.push(b.dataset.v);
+          var v = b.dataset.v;
+          if (CRITERES_MULTIPLES[champ]) {
+            // La hauteur : chaque case bascule independamment, sans
+            // toucher aux autres — c'est ce qui permet de couvrir une
+            // fourchette d'estimation.
+            var i = liste.indexOf(v);
+            if (i >= 0) liste.splice(i, 1); else liste.push(v);
+          } else {
+            // Insecte et type de client : un seul choix possible. En
+            // choisir un remplace l'ancien ; recliquer sur le meme
+            // l'annule.
+            rdvChoix[champ] = (liste.length === 1 && liste[0] === v)
+              ? [] : [v];
+          }
           afficherChoixRdv();
           estimerPrixRdv();
         });
@@ -2417,7 +2437,21 @@
     montrer('agenda');
   });
 
+  /*
+    Verrou anti-double-appui.
+
+    DEFAUT VECU : un rendez-vous est apparu deux fois dans l'agenda.
+    Sans ce verrou, deux appuis rapproches sur « Enregistrer » — un
+    geste courant sur un ecran tactile — declenchent chacun leur propre
+    identifiant (uuidv7 genere a chaque appel) avant que le premier
+    enregistrement soit termine : deux rendez-vous distincts partent au
+    lieu d'un seul.
+  */
+  var enregistrementRdvEnCours = false;
+
   $('btn-enregistrer-rdv').addEventListener('click', function () {
+    if (enregistrementRdvEnCours) return;
+
     var nom = $('rdv-nom').value.trim();
     if (!nom) { message('etat-rdv', 'Le nom du client est nécessaire.'); return; }
     if (!$('rdv-date').value || !$('rdv-heure').value) {
@@ -2456,6 +2490,9 @@
       },
     };
 
+    enregistrementRdvEnCours = true;
+    $('btn-enregistrer-rdv').disabled = true;
+
     depot.enregistrerIntervention(ligne).then(function () {
       var i = interventions.findIndex(function (x) { return x.id === ligne.id; });
       if (i >= 0) interventions[i] = ligne; else interventions.unshift(ligne);
@@ -2467,6 +2504,11 @@
       montrer('agenda');
     }).catch(function (e) {
       message('etat-rdv', 'Enregistrement impossible : ' + (e.message || e));
+    }).then(function () {
+      // Toujours leve, meme apres une erreur : sinon un rendez-vous
+      // reste bloque sans recours apres un simple probleme reseau.
+      enregistrementRdvEnCours = false;
+      $('btn-enregistrer-rdv').disabled = false;
     });
   });
 
