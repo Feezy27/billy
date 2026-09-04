@@ -205,7 +205,7 @@
       <div><label for="rdv-date">Date</label>
         <input id="rdv-date" type="date"></div>
       <div><label for="rdv-heure">Heure</label>
-        <input id="rdv-heure" type="time"></div>
+        <input id="rdv-heure" type="time" step="300"></div>
     </div>
     <label for="rdv-adresse">Adresse</label>
     <input id="rdv-adresse">
@@ -2154,11 +2154,18 @@
 
   /*
     Le collegue au telephone n'ouvre pas la grille tarifaire : il coche
-    ce que le client decrit. Ces trois choix suffisent a designer le
+    ce que le client decrit. Ces trois criteres suffisent a designer le
     tarif applicable, donc a ANNONCER UN PRIX pendant l'appel — avec
     les frais de deplacement, pour que le client sache combien preparer.
+
+    CHAQUE CRITERE ACCEPTE PLUSIEURS CHOIX. Cas reel : le client estime
+    la hauteur « entre 12 et 16 m », ce qui chevauche deux tarifs. En
+    cochant les deux hauteurs plausibles, les DEUX prix sont annonces,
+    avec la precision qu'ils seront tranches sur place. Annoncer un
+    seul prix choisi au hasard serait pire que d'en annoncer deux avec
+    la reserve qui va avec.
   */
-  var rdvChoix = { insecte: '', typeClient: '', hauteur: '' };
+  var rdvChoix = { insectes: [], typesClient: [], hauteurs: [] };
 
   function afficherChoixRdv() {
     function boutons(zoneId, items, champ) {
@@ -2166,80 +2173,127 @@
         + (items || []).map(function (v) {
             return '<button type="button" data-choix="' + champ
               + '" data-v="' + v.id + '"'
-              + (rdvChoix[champ] === v.id ? ' class="choisi"' : '')
+              + (rdvChoix[champ].indexOf(v.id) >= 0 ? ' class="choisi"' : '')
               + '>' + v.libelle + '</button>';
           }).join('') + '</div>';
     }
-    boutons('rdv-insectes', reglages.insectes, 'insecte');
-    boutons('rdv-types', reglages.typesClient, 'typeClient');
-    boutons('rdv-hauteurs', reglages.hauteurs, 'hauteur');
+    boutons('rdv-insectes', reglages.insectes, 'insectes');
+    boutons('rdv-types', reglages.typesClient, 'typesClient');
+    boutons('rdv-hauteurs', reglages.hauteurs, 'hauteurs');
 
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-choix]'), function (b) {
         b.addEventListener('click', function () {
           var champ = b.dataset.choix;
-          // Un second clic annule : on peut ne pas savoir la hauteur
-          // au telephone, et forcer un choix donnerait un faux prix.
-          rdvChoix[champ] = (rdvChoix[champ] === b.dataset.v)
-            ? '' : b.dataset.v;
+          var liste = rdvChoix[champ];
+          var i = liste.indexOf(b.dataset.v);
+          // Chaque case bascule independamment : cocher une seconde
+          // hauteur ne doit pas decocher la premiere.
+          if (i >= 0) liste.splice(i, 1); else liste.push(b.dataset.v);
           afficherChoixRdv();
           estimerPrixRdv();
         });
       });
   }
 
+  /** Produit cartesien de plusieurs listes (jamais vide : [''] a defaut). */
+  function combinaisons(listes) {
+    return listes.reduce(function (acc, liste) {
+      var l = liste.length ? liste : [''];
+      var suivant = [];
+      acc.forEach(function (a) {
+        l.forEach(function (v) { suivant.push(a.concat([v])); });
+      });
+      return suivant;
+    }, [[]]);
+  }
+
   /**
    * Prix a annoncer au telephone : intervention + deplacement.
    * Volontairement prudent — tant qu'on ne sait pas, on ne chiffre pas.
+   * Si la selection reste ambigue, TOUS les prix distincts qu'elle
+   * peut produire sont affiches, pas un seul choisi arbitrairement.
    */
   function estimerPrixRdv() {
     var zone = $('rdv-estimation');
     if (!zone) return;
 
-    if (!rdvChoix.insecte) {
+    if (!rdvChoix.insectes.length) {
       zone.innerHTML = '<div class="muted">Choisissez un insecte pour '
         + 'obtenir un prix.</div>';
       return;
     }
 
     var nids = parseInt($('rdv-nids').value, 10) || 1;
-    var r = window.BillySuisse.chiffrer({
-      typeClient: rdvChoix.typeClient || 'particulier',
-      nids: [{ insectId: rdvChoix.insecte, quantity: nids,
-               heightId: rdvChoix.hauteur || undefined }],
-      npa: $('rdv-npa').value.trim(),
-      localite: $('rdv-localite').value.trim(),
-      distanceKm: rdvDistanceKm,
-    }, reglages);
+    var combos = combinaisons(
+      [rdvChoix.insectes, rdvChoix.typesClient, rdvChoix.hauteurs]);
 
-    if (r.erreur) {
+    var resultats = [];
+    var vus = {};
+    var erreurs = [];
+    combos.forEach(function (c) {
+      var insecte = c[0], typeClient = c[1] || 'particulier', hauteur = c[2];
+      var r = window.BillySuisse.chiffrer({
+        typeClient: typeClient,
+        nids: [{ insectId: insecte, quantity: nids,
+                 heightId: hauteur || undefined }],
+        npa: $('rdv-npa').value.trim(),
+        localite: $('rdv-localite').value.trim(),
+        distanceKm: rdvDistanceKm,
+      }, reglages);
+
+      if (r.erreur) { erreurs.push(r.erreur); return; }
+      // Deux combinaisons peuvent retomber sur la MEME regle (deux
+      // hauteurs couvertes par un seul tarif) : le meme prix ne doit
+      // pas apparaitre deux fois.
+      var cle = r.totaux.total + '|' + r.lignes.map(function (l) {
+        return l.label; }).join('+');
+      if (vus[cle]) return;
+      vus[cle] = true;
+      resultats.push(r);
+    });
+
+    if (!resultats.length) {
       zone.innerHTML = '<div class="info">Pas de tarif pour cette '
-        + 'combinaison : ' + r.erreur + '</div>';
+        + 'combinaison : ' + (erreurs[0] || '') + '</div>';
       return;
     }
 
-    var h = r.lignes.map(function (l) {
-      return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
-        + window.Billy.formatChf(l.amount) + '</span></div>';
-    }).join('');
-    h += '<div class="total gros"><span>À annoncer</span><span>'
-      + window.Billy.formatChf(r.totaux.total) + ' CHF</span></div>';
+    var ambigu = resultats.length > 1;
+    var h = ambigu
+      ? '<p class="muted">Plusieurs tarifs possibles selon ce qui sera '
+        + 'constaté sur place :</p>' : '';
 
-    // Le deplacement est ce que le client oublie le plus souvent : on
-    // le nomme explicitement plutot que de le noyer dans le total.
-    if (r.deplacement) {
-      h += '<p class="muted">Dont ' + r.deplacement.label + ' : '
-        + window.Billy.formatChf(r.deplacement.amount) + ' CHF. '
-        + 'À signaler au client.</p>';
-    } else if (rdvDistanceKm == null && $('rdv-npa').value.trim()) {
+    resultats.forEach(function (r) {
+      h += '<div class="carte" style="margin-bottom:8px">';
+      h += r.lignes.map(function (l) {
+        return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
+          + window.Billy.formatChf(l.amount) + '</span></div>';
+      }).join('');
+      h += '<div class="total gros"><span>'
+        + (ambigu ? 'Option' : 'À annoncer') + '</span><span>'
+        + window.Billy.formatChf(r.totaux.total) + ' CHF</span></div>';
+
+      // Le deplacement est ce que le client oublie le plus souvent : on
+      // le nomme explicitement plutot que de le noyer dans le total.
+      if (r.deplacement) {
+        h += '<p class="muted">Dont ' + r.deplacement.label + ' : '
+          + window.Billy.formatChf(r.deplacement.amount) + ' CHF. '
+          + 'À signaler au client.</p>';
+      }
+      if ((r.aidesInformatives || []).length) {
+        h += '<p class="muted">Le client pourra demander un remboursement '
+          + 'à sa commune.</p>';
+      }
+      h += '</div>';
+    });
+
+    if (!ambigu && !resultats[0].deplacement && rdvDistanceKm == null
+        && $('rdv-npa').value.trim()) {
       h += '<p class="muted">Frais de déplacement non calculés : '
         + 'distance inconnue.</p>';
     }
-    if ((r.aidesInformatives || []).length) {
-      h += '<p class="muted">Le client pourra demander un remboursement '
-        + 'à sa commune.</p>';
-    }
-    zone.innerHTML = '<div class="carte">' + h + '</div>';
+    zone.innerHTML = h;
   }
 
   /** Distance calculee depuis l'adresse saisie, ou null. */
@@ -2286,6 +2340,23 @@
   /** Rendez-vous en cours de modification, ou null pour une creation. */
   var rdvEnEdition = null;
 
+  /*
+    Heure par defaut.
+
+    Un rendez-vous ne se prend jamais dans le passe : proposer 09:00
+    par defaut, alors qu'il est deja 15h, invite a saisir une heure
+    deja passee sans que rien ne le signale.
+
+    Arrondie a 5 minutes AU-DESSUS : ni 14h58 (avant maintenant), ni
+    un rendez-vous saisi comme s'il commencait il y a deux minutes.
+  */
+  function heureArrondie(d) {
+    var m = Math.ceil(d.getMinutes() / 5) * 5;
+    var h = d.getHours();
+    if (m === 60) { m = 0; h = (h + 1) % 24; }
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+
   function ouvrirFormulaireRdv(id) {
     rdvEnEdition = id
       ? interventions.find(function (x) { return x.id === id; })
@@ -2296,7 +2367,12 @@
       ['rdv-nom', 'rdv-tel', 'rdv-adresse', 'rdv-npa', 'rdv-localite',
        'rdv-note'].forEach(function (i) { $(i).value = ''; });
       $('rdv-date').value = cleJour(jourAffiche);
-      $('rdv-heure').value = '09:00';
+      // Aujourd'hui : l'heure reelle, arrondie. Un autre jour : 09:00
+      // reste un depart de journee raisonnable — « maintenant » n'a
+      // aucun sens pour un rendez-vous pris demain ou la semaine
+      // prochaine.
+      $('rdv-heure').value = (cleJour(jourAffiche) === cleJour(new Date()))
+        ? heureArrondie(new Date()) : '09:00';
       $('titre-rdv').textContent = 'Nouveau rendez-vous';
     } else {
       var d = rdvEnEdition.donnees || {};
@@ -2313,9 +2389,16 @@
       $('titre-rdv').textContent = 'Modifier le rendez-vous';
     }
     var d0 = (rdvEnEdition && rdvEnEdition.donnees) || {};
+    // Compatible avec les rendez-vous deja enregistres avant le passage
+    // aux choix multiples, ou chaque critere n'etait qu'une valeur.
+    function versListe(valeur) {
+      if (Array.isArray(valeur)) return valeur.slice();
+      return valeur ? [valeur] : [];
+    }
     rdvChoix = {
-      insecte: d0.insecte || '', typeClient: d0.typeClient || '',
-      hauteur: d0.hauteur || '',
+      insectes: versListe(d0.insectes || d0.insecte),
+      typesClient: versListe(d0.typesClient || d0.typeClient),
+      hauteurs: versListe(d0.hauteurs || d0.hauteur),
     };
     $('rdv-nids').value = d0.nidsAnnonces || 1;
     rdvDistanceKm = null;
@@ -2364,10 +2447,11 @@
         telephone: $('rdv-tel').value.trim(),
         note: $('rdv-note').value.trim(),
         // Ce qui a ete note au telephone : repris tel quel sur le
-        // terrain, pour ne rien ressaisir.
-        insecte: rdvChoix.insecte,
-        typeClient: rdvChoix.typeClient,
-        hauteur: rdvChoix.hauteur,
+        // terrain, pour ne rien ressaisir. Des tableaux : le meme
+        // critere peut couvrir plusieurs valeurs plausibles.
+        insectes: rdvChoix.insectes.slice(),
+        typesClient: rdvChoix.typesClient.slice(),
+        hauteurs: rdvChoix.hauteurs.slice(),
         nidsAnnonces: parseInt($('rdv-nids').value, 10) || 1,
       },
     };
@@ -2413,18 +2497,24 @@
       $('convenu-total').value = d.prixConvenu.total / 100;
       $('convenu-motif').value = d.prixConvenu.motif || '';
     }
-    $('cli-type').value = d.typeClient || 'particulier';
+    var insectesNotes = Array.isArray(d.insectes) ? d.insectes
+      : (d.insecte ? [d.insecte] : []);
+    var typesNotes = Array.isArray(d.typesClient) ? d.typesClient
+      : (d.typeClient ? [d.typeClient] : []);
+    var hauteursNotees = Array.isArray(d.hauteurs) ? d.hauteurs
+      : (d.hauteur ? [d.hauteur] : []);
+    $('cli-type').value = typesNotes[0] || 'particulier';
     nidsSaisie = (d.nids && d.nids.length)
       ? d.nids.map(function (n) {
           return { insectId: n.insectId, quantity: n.quantity,
                    heightId: n.heightId || '' };
         })
-      // Rien de saisi sur place : on part de ce que le collegue a note
-      // au telephone. Le terrain corrige si la realite differe.
-      : [{ insectId: d.insecte || nidVide().insectId,
+      // Rien de saisi sur place : on part du PREMIER choix plausible
+      // note au telephone. Si plusieurs hauteurs avaient ete cochees
+      // par prudence, c'est ici, en mesurant, que Philippe tranche.
+      : [{ insectId: insectesNotes[0] || nidVide().insectId,
            quantity: d.nidsAnnonces || 1,
-           heightId: d.hauteur || '' }];
-    if (d.typeClient) $('cli-type').value = d.typeClient;
+           heightId: hauteursNotees[0] || '' }];
     coutsSaisie = (d.supplementsPonctuels || []).map(function (c) {
       return { label: c.label, amount: c.amount };
     });
