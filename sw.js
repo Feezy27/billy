@@ -21,7 +21,7 @@
 
 // Change ce numero a chaque livraison : il force le nettoyage des
 // anciennes reserves.
-const VERSION = 'billy-2026-09-04c';
+const VERSION = 'billy-2026-09-05';
 
 const FICHIERS = [
   './',

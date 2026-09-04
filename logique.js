@@ -40,9 +40,12 @@
         mode: 'inclus',
         assujetti: true,
       },
-      // Regle metier confirmee : entre deux majorations qui
-      // s'appliquent au meme nid, seule la plus elevee compte.
-      majorations: 'plus_elevee',
+      /*
+        Toutes les regles sont des PRIX DE BASE : chacune donne un prix
+        complet pour une situation donnee. Il n'y a plus de
+        supplements qui s'ajoutent, donc plus de question de cumul.
+        Le reglage « majorations » n'a plus d'objet et a ete retire.
+      */
 
       /*
         GRILLE TARIFAIRE MODULABLE — le modele de BillyPro.
@@ -87,13 +90,6 @@
       aides: [],
 
       /* Listes parametrables, utilisees par les conditions. */
-      localisations: [
-        { id: 'exterieur', libelle: 'Extérieur accessible' },
-        { id: 'toiture', libelle: 'Toiture' },
-        { id: 'cheminee', libelle: 'Cheminée' },
-        { id: 'comble', libelle: 'Combles' },
-        { id: 'cave', libelle: 'Cave / vide sanitaire' },
-      ],
       hauteurs: [
         { id: 'h0_3', libelle: "Jusqu'à 3 m" },
         { id: 'h3_8', libelle: '3 à 8 m' },
@@ -107,9 +103,17 @@
       },
       insectes: [
         { id: 'guepes', libelle: 'Guêpes' },
-        { id: 'frelons', libelle: 'Frelons' },
+        { id: 'frelons', libelle: 'Frelons européens' },
         { id: 'frelon_asiatique', libelle: 'Frelon asiatique' },
+        { id: 'bourdons', libelle: 'Bourdons' },
         { id: 'chenilles', libelle: 'Chenilles processionnaires' },
+      ],
+      /* Types de client, modifiables comme les autres listes. */
+      typesClient: [
+        { id: 'particulier', libelle: 'Particulier' },
+        { id: 'commune', libelle: 'Commune' },
+        { id: 'gerance', libelle: 'Gérance' },
+        { id: 'entreprise', libelle: 'Entreprise' },
       ],
     };
   }
@@ -164,7 +168,6 @@
         var sansAide = B.priceInterventionFromRules({
           customerType: intervention.typeClient || 'particulier',
           nests: intervention.nids || [],
-          modifierCombination: reglages.majorations || 'plus_elevee',
           degressivite: reglages.degressivite || undefined,
         }, reglesActives);
         var sousTotal = sansAide.reduce(function (t, l) {
@@ -191,7 +194,6 @@
         {
           customerType: intervention.typeClient || 'particulier',
           nests: intervention.nids || [],
-          modifierCombination: reglages.majorations || 'plus_elevee',
           dureeMin: intervention.dureeMin,
           distanceKm: intervention.distanceKm == null
             ? undefined : intervention.distanceKm,

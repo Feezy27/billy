@@ -91,6 +91,23 @@
      une affiche. */
   .logo-facture{width:64px;height:64px;object-fit:contain;float:right;
     margin-left:14px}
+  .regle{border:1px solid var(--ligne);border-radius:12px;margin-bottom:8px;
+    overflow:hidden;background:#14161a}
+  .regle-titre{width:100%;margin:0;border-radius:0;background:none;
+    color:var(--ivoire);text-align:left;padding:13px 12px;font-weight:700;
+    font-size:14px;display:flex;justify-content:space-between;gap:10px;
+    align-items:center}
+  .regle-prix{color:var(--ambre);font-weight:800;white-space:nowrap}
+  .regle-corps{display:none;padding:0 12px 12px}
+  .regle.ouverte .regle-corps{display:block}
+  .regle-outils{display:flex;gap:6px}
+  .regle-outils button{width:auto;padding:9px 12px;margin:0;font-size:13px}
+  .choix{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+  .choix button{width:auto;margin:0;padding:9px 13px;font-size:13px;
+    font-weight:600;background:#14161a;color:var(--ivoire);
+    border:1px solid var(--ligne);border-radius:99px}
+  .choix button.choisi{background:var(--ambre);color:#241c00;
+    border-color:var(--ambre)}
   .ecran{display:none}
   .ecran.visible{display:block}
   .ligne-facture{display:flex;justify-content:space-between;
@@ -178,9 +195,6 @@
       <div><label for="rdv-heure">Heure</label>
         <input id="rdv-heure" type="time"></div>
     </div>
-    <label for="rdv-duree">Durée prévue (min)</label>
-    <input id="rdv-duree" type="number" min="15" step="15" value="45"
-      inputmode="numeric">
     <label for="rdv-adresse">Adresse</label>
     <input id="rdv-adresse">
     <div class="rangee">
@@ -190,6 +204,18 @@
         <input id="rdv-localite" autocomplete="off"></div>
     </div>
     <div id="sugg-rdv-localite" class="suggestions"></div>
+    <label>Insecte</label>
+    <div id="rdv-insectes"></div>
+    <label>Type de client</label>
+    <div id="rdv-types"></div>
+    <label>Hauteur estimée du nid</label>
+    <div id="rdv-hauteurs"></div>
+    <label for="rdv-nids">Nombre de nids annoncé (indicatif)</label>
+    <input id="rdv-nids" type="number" min="1" value="1" inputmode="numeric">
+
+    <div class="kicker">Prix à annoncer</div>
+    <div id="rdv-estimation"></div>
+
     <label for="rdv-note">Ce que dit le client</label>
     <textarea id="rdv-note" rows="3"></textarea>
   </div>
@@ -228,12 +254,7 @@
     <input id="cli-adresse">
     <div id="sugg-cli-localite" class="suggestions"></div>
     <label for="cli-type">Type de client</label>
-    <select id="cli-type">
-      <option value="particulier">Particulier</option>
-      <option value="commune">Commune</option>
-      <option value="gerance">Gérance</option>
-      <option value="entreprise">Entreprise</option>
-    </select>
+    <select id="cli-type"></select>
   </div>
 
   <div class="kicker">Nids traités</div>
@@ -392,6 +413,25 @@
   </div>
   </div>
 
+<div class="section" data-section="20">
+    <button class="entete-section" data-ouvrir="20">
+      <span>Listes</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+    <p class="muted">Ce que vous pouvez choisir dans les conditions de la
+      grille et lors d'une prise de rendez-vous.</p>
+    <div class="kicker">Insectes</div>
+    <div id="liste-insectes"></div>
+    <button id="btn-ajouter-insecte" class="secondaire">+ Insecte</button>
+    <div class="kicker">Hauteurs</div>
+    <div id="liste-hauteurs"></div>
+    <button id="btn-ajouter-hauteur" class="secondaire">+ Hauteur</button>
+    <div class="kicker">Types de client</div>
+    <div id="liste-types"></div>
+    <button id="btn-ajouter-type" class="secondaire">+ Type de client</button>
+    </div>
+  </div>
+
 <div class="section" data-section="2">
     <button class="entete-section" data-ouvrir="2">
       <span>Grille tarifaire</span><span class="chevron">›</span>
@@ -423,22 +463,6 @@
     <input id="deg-valeur" type="number" step="0.05" inputmode="decimal">
     <label for="deg-apartir">À partir du nid n°</label>
     <input id="deg-apartir" type="number" min="2" value="2" inputmode="numeric">
-    </div>
-  </div>
-  </div>
-
-<div class="section" data-section="4">
-    <button class="entete-section" data-ouvrir="4">
-      <span>Majorations</span><span class="chevron">›</span>
-    </button>
-    <div class="corps-section">
-
-  <div class="carte">
-    <label for="maj-mode">Quand plusieurs majorations touchent le même nid</label>
-    <select id="maj-mode">
-      <option value="plus_elevee">Seule la plus élevée s'applique</option>
-      <option value="cumul">Elles se cumulent</option>
-    </select>
     </div>
   </div>
   </div>
@@ -585,6 +609,12 @@
     // Recalcule a CHAQUE passage : « il y a 3 jours » fige au
     // chargement resterait faux si l'application reste ouverte.
     if (nom === 'reglages' && typeof afficherEtatSauvegarde === 'function') {
+      // Tout est recalcule a l'affichage : une grille modifiee
+      // ailleurs — import, restauration, synchronisation — resterait
+      // sinon affichee dans son etat d'avant.
+      afficherRegles();
+      afficherListes();
+      afficherAides();
       afficherEtatSauvegarde();
       afficherResume();
     }
@@ -739,13 +769,14 @@
     $('tva-delai').value = reglages.tva.delaiJours || 30;
     $('devis-validite').value = reglages.tva.validiteDevisJours || 30;
     $('annee-compta').value = new Date().getFullYear();
-    $('maj-mode').value = reglages.majorations || 'plus_elevee';
     var deg = reglages.degressivite;
     $('deg-type').value = deg ? deg.type : '';
     $('deg-valeur').value = deg
       ? (deg.type === 'montant' ? deg.valeur / 100 : deg.valeur) : '';
     $('deg-apartir').value = (deg && deg.aPartirDu) || 2;
     afficherRegles();
+    afficherListes();
+    remplirTypesClient();
     afficherDeplacement();
     afficherAides();
     afficherEtatSauvegarde();
@@ -932,26 +963,43 @@
     facon de facturer. Une regle sans condition est un forfait.
   */
 
+  /*
+    LA GRILLE, VERSION SIMPLIFIEE.
+
+    Chaque regle donne un PRIX COMPLET pour une situation donnee. Il
+    n'y a plus de « supplements » qui s'ajoutent : « Guepes en
+    hauteur » est une regle a part entiere, avec son prix.
+
+    CONSEQUENCE A CONNAITRE : le moteur retient LA PREMIERE regle qui
+    correspond. Une regle precise doit donc etre placee AU-DESSUS
+    d'une regle generale — sinon « Guepes » repondrait avant
+    « Guepes en hauteur », et le prix serait faux sans que rien ne le
+    signale. D'ou les fleches de deplacement.
+  */
+
   var CRITERES = [
-    { id: 'insecte',      libelle: 'Insecte',        liste: 'insectes' },
-    { id: 'localisation', libelle: 'Localisation',   liste: 'localisations' },
-    { id: 'hauteur',      libelle: 'Hauteur',        liste: 'hauteurs' },
-    { id: 'type_client',  libelle: 'Type de client', liste: 'typesClient' },
-    { id: 'quantite',     libelle: 'Nombre de nids', plage: true },
-    { id: 'duree',        libelle: 'Durée (min)',    plage: true },
-    { id: 'distance',     libelle: 'Distance (km)',  plage: true },
+    { id: 'insecte',     libelle: 'Insecte',        liste: 'insectes' },
+    { id: 'hauteur',     libelle: 'Hauteur',        liste: 'hauteurs' },
+    { id: 'type_client', libelle: 'Type de client', liste: 'typesClient' },
   ];
 
-  var TYPES_CLIENT = [
-    { id: 'particulier', libelle: 'Particulier' },
-    { id: 'commune', libelle: 'Commune' },
-    { id: 'gerance', libelle: 'Gérance' },
-    { id: 'entreprise', libelle: 'Entreprise' },
-  ];
+  function valeursDe(nomListe) { return reglages[nomListe] || []; }
 
-  function valeursDe(nomListe) {
-    if (nomListe === 'typesClient') return TYPES_CLIENT;
-    return reglages[nomListe] || [];
+  function libelleValeur(nomListe, id) {
+    var v = valeursDe(nomListe).find(function (x) { return x.id === id; });
+    return v ? v.libelle : id;
+  }
+
+  /** Resume d'une regle, affiche quand elle est repliee. */
+  function resumeConditions(r) {
+    if (!(r.conditions || []).length) return 'toutes situations';
+    return r.conditions.map(function (c) {
+      var crit = CRITERES.find(function (x) { return x.id === c.critere; });
+      if (!crit) return '';
+      return (c.valeurs || []).map(function (v) {
+        return libelleValeur(crit.liste, v);
+      }).join(' ou ') || crit.libelle;
+    }).filter(Boolean).join(' + ');
   }
 
   function afficherRegles() {
@@ -963,33 +1011,44 @@
       return;
     }
     $('liste-regles').innerHTML = regles.map(function (r, n) {
-      return '<div class="carte">'
-        + '<div class="rangee"><div style="flex:3">'
+      return '<div class="regle" data-regle="' + n + '">'
+        + '<button class="regle-titre" data-ouvrir-regle="' + n + '">'
+        + '<span>' + (r.label || 'Sans nom')
+        + '<br><span class="muted" style="font-weight:400">'
+        + resumeConditions(r) + '</span></span>'
+        + '<span class="regle-prix">'
+        + window.Billy.formatChf(r.value || 0) + '</span></button>'
+        + '<div class="regle-corps">'
+
         + '<label>Libellé sur la facture</label>'
         + '<input data-r="' + n + '" data-c="label" value="'
-        + (r.label || '').replace(/"/g, '&quot;') + '"></div>'
-        + '<div><label>Rôle</label><select data-r="' + n + '" data-c="role">'
-        + opt('base', 'Prix de base', r.role)
-        + opt('supplement', 'Supplément', r.role)
-        + '</select></div></div>'
+        + (r.label || '').replace(/"/g, '&quot;') + '">'
 
-        + '<label>Comment le montant est calculé</label>'
-        + '<select data-r="' + n + '" data-c="calc">'
-        + opt('fixe', 'Montant fixe', r.calc)
-        + opt('pourcent', 'Pourcentage de la base', r.calc)
-        + opt('par_tranche', 'Par tranche entamée', r.calc)
-        + '</select>'
-
-        + champsCalcul(r, n)
+        + '<div class="rangee">'
+        + '<div><label>1<sup>er</sup> nid (CHF)</label>'
+        + '<input type="number" step="0.05" inputmode="decimal" data-r="' + n
+        + '" data-c="valueChf" value="'
+        + (r.value ? r.value / 100 : '') + '"></div>'
+        + '<div><label>Nids suivants (CHF)</label>'
+        + '<input type="number" step="0.05" inputmode="decimal" data-r="' + n
+        + '" data-c="valueSuivantsChf" value="'
+        + (r.valueSuivants ? r.valueSuivants / 100 : '') + '"></div></div>'
+        + '<p class="muted">Nids suivants vide = même prix que le premier.</p>'
 
         + '<label>Conditions — la règle s\u2019applique si TOUTES sont vraies</label>'
         + (r.conditions || []).map(function (c, k) {
             return champsCondition(c, n, k); }).join('')
         + '<button class="secondaire" data-ajouter-cond="' + n + '">'
         + '+ Condition</button>'
+
+        + '<div class="regle-outils">'
+        + '<button class="secondaire" data-monter="' + n + '"'
+        + (n === 0 ? ' disabled' : '') + '>↑ Monter</button>'
+        + '<button class="secondaire" data-descendre="' + n + '"'
+        + (n === regles.length - 1 ? ' disabled' : '') + '>↓ Descendre</button>'
         + '<button class="secondaire" data-suppr-regle="' + n + '">'
-        + 'Supprimer cette règle</button>'
-        + '</div>';
+        + 'Supprimer</button></div>'
+        + '</div></div>';
     }).join('');
     brancherEditeurRegles();
   }
@@ -999,95 +1058,59 @@
       + '>' + texte + '</option>';
   }
 
-  function champsCalcul(r, n) {
-    var h = '';
-    if (r.calc === 'pourcent') {
-      h += '<label>Pourcentage</label><input type="number" step="1" '
-        + 'inputmode="decimal" data-r="' + n + '" data-c="value" value="'
-        + (r.value || '') + '">';
-      return h;
-    }
-    var enFrancs = (r.value || 0) / 100;
-    h += '<label>Montant (CHF)</label><input type="number" step="0.05" '
-      + 'inputmode="decimal" data-r="' + n + '" data-c="valueChf" value="'
-      + (r.value ? enFrancs : '') + '">';
-    if (r.calc === 'par_tranche') {
-      h += '<label>Par tranche de</label>'
-        + '<select data-r="' + n + '" data-c="mesure">'
-        + opt('duree', 'minutes', r.mesure)
-        + opt('distance', 'kilomètres', r.mesure)
-        + opt('quantite', 'nids', r.mesure) + '</select>'
-        + '<input type="number" inputmode="numeric" data-r="' + n
-        + '" data-c="tailleTranche" value="' + (r.tailleTranche || 30) + '">';
-      return h;
-    }
-    // fixe
-    h += '<label>Appliqué</label><select data-r="' + n + '" data-c="per">'
-      + opt('nid', 'par nid', r.per || 'nid')
-      + opt('intervention', 'une fois par intervention', r.per) + '</select>';
-    if ((r.per || 'nid') === 'nid') {
-      h += '<label>Nids suivants (CHF) — vide = même prix</label>'
-        + '<input type="number" step="0.05" inputmode="decimal" data-r="' + n
-        + '" data-c="valueSuivantsChf" value="'
-        + (r.valueSuivants ? (r.valueSuivants / 100) : '') + '">';
-    }
-    if (r.role === 'base') {
-      h += '<label>Minimum facturé (CHF) — facultatif</label>'
-        + '<input type="number" step="0.05" inputmode="decimal" data-r="' + n
-        + '" data-c="minimumChf" value="'
-        + (r.minimum ? (r.minimum / 100) : '') + '">';
-    }
-    return h;
-  }
-
   function champsCondition(c, n, k) {
     var crit = CRITERES.find(function (x) { return x.id === c.critere; })
       || CRITERES[0];
-    var h = '<div class="carte" style="background:#14161a">'
+    var h = '<div class="carte" style="background:var(--ardoise)">'
       + '<select data-r="' + n + '" data-k="' + k + '" data-c="critere">'
       + CRITERES.map(function (x) {
           return opt(x.id, x.libelle, c.critere); }).join('')
-      + '</select>';
-
-    if (crit.plage) {
-      h += '<div class="rangee">'
-        + '<div><label>De</label><input type="number" inputmode="numeric" '
-        + 'data-r="' + n + '" data-k="' + k + '" data-c="min" value="'
-        + (c.min == null ? '' : c.min) + '"></div>'
-        + '<div><label>À</label><input type="number" inputmode="numeric" '
-        + 'data-r="' + n + '" data-k="' + k + '" data-c="max" value="'
-        + (c.max == null ? '' : c.max) + '"></div></div>';
-    } else {
+      + '</select>'
       // Plusieurs valeurs cochees = OU. « frelon OU frelon asiatique ».
-      h += '<p class="muted">Cochez une ou plusieurs valeurs (OU)</p>';
-      h += valeursDe(crit.liste).map(function (v) {
-        var coche = (c.valeurs || []).indexOf(v.id) >= 0;
-        return '<label style="color:var(--ivoire);display:flex;'
-          + 'align-items:center;gap:8px;margin:4px 0">'
-          + '<input type="checkbox" style="width:auto" data-r="' + n
-          + '" data-k="' + k + '" data-c="valeur" data-v="' + v.id + '"'
-          + (coche ? ' checked' : '') + '>' + v.libelle + '</label>';
-      }).join('');
-    }
+      + '<p class="muted">Cochez une ou plusieurs valeurs</p>';
+    h += valeursDe(crit.liste).map(function (v) {
+      var coche = (c.valeurs || []).indexOf(v.id) >= 0;
+      return '<label style="color:var(--ivoire);display:flex;'
+        + 'align-items:center;gap:8px;margin:4px 0">'
+        + '<input type="checkbox" style="width:auto" data-r="' + n
+        + '" data-k="' + k + '" data-c="valeur" data-v="' + v.id + '"'
+        + (coche ? ' checked' : '') + '>' + v.libelle + '</label>';
+    }).join('');
     h += '<button class="secondaire" data-suppr-cond="' + n + '.' + k + '">'
       + 'Retirer cette condition</button></div>';
     return h;
   }
 
   function brancherEditeurRegles() {
+    // Le titre replie/deplie, sans toucher au reste.
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-ouvrir-regle]'), function (b) {
+        b.addEventListener('click', function () {
+          b.parentNode.classList.toggle('ouverte');
+        });
+      });
     Array.prototype.forEach.call(
       document.querySelectorAll('#liste-regles [data-r]'), function (el) {
         el.addEventListener('change', function () {
-          appliquerChamp(el); afficherRegles();
+          var n = +el.dataset.r;
+          appliquerChamp(el);
+          afficherRegles();
+          // On rouvre la regle qu'on etait en train de modifier :
+          // sinon chaque frappe la refermerait.
+          var d = document.querySelector('[data-regle="' + n + '"]');
+          if (d) d.classList.add('ouverte');
         });
       });
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-ajouter-cond]'), function (b) {
         b.addEventListener('click', function () {
-          var r = reglages.regles[+b.dataset.ajouterCond];
+          var n = +b.dataset.ajouterCond;
+          var r = reglages.regles[n];
           r.conditions = r.conditions || [];
           r.conditions.push({ critere: 'insecte', valeurs: [] });
           afficherRegles();
+          document.querySelector('[data-regle="' + n + '"]')
+            .classList.add('ouverte');
         });
       });
     Array.prototype.forEach.call(
@@ -1096,12 +1119,35 @@
           var p = b.dataset.supprCond.split('.');
           reglages.regles[+p[0]].conditions.splice(+p[1], 1);
           afficherRegles();
+          document.querySelector('[data-regle="' + p[0] + '"]')
+            .classList.add('ouverte');
         });
       });
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-suppr-regle]'), function (b) {
         b.addEventListener('click', function () {
           reglages.regles.splice(+b.dataset.supprRegle, 1);
+          afficherRegles();
+        });
+      });
+    // L'ORDRE FAIT FOI : la premiere regle qui correspond gagne.
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-monter]'), function (b) {
+        b.addEventListener('click', function () {
+          var n = +b.dataset.monter;
+          if (n < 1) return;
+          var t = reglages.regles;
+          var x = t[n]; t[n] = t[n - 1]; t[n - 1] = x;
+          afficherRegles();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-descendre]'), function (b) {
+        b.addEventListener('click', function () {
+          var n = +b.dataset.descendre;
+          var t = reglages.regles;
+          if (n >= t.length - 1) return;
+          var x = t[n]; t[n] = t[n + 1]; t[n + 1] = x;
           afficherRegles();
         });
       });
@@ -1119,16 +1165,12 @@
         // Changer de critere vide l'ancienne selection : garder des
         // valeurs d'insecte sur une condition de hauteur donnerait une
         // regle qui ne s'applique jamais, sans rien dire.
-        if (['quantite', 'duree', 'distance'].indexOf(el.value) >= 0) {
-          delete cond.valeurs; cond.min = undefined; cond.max = undefined;
-        } else { cond.valeurs = []; delete cond.min; delete cond.max; }
+        cond.valeurs = [];
       } else if (c === 'valeur') {
         cond.valeurs = cond.valeurs || [];
         var i = cond.valeurs.indexOf(el.dataset.v);
         if (el.checked && i < 0) cond.valeurs.push(el.dataset.v);
         if (!el.checked && i >= 0) cond.valeurs.splice(i, 1);
-      } else {
-        cond[c] = el.value === '' ? undefined : Number(el.value);
       }
       return;
     }
@@ -1138,33 +1180,89 @@
     if (c === 'valueChf') { r.value = el.value ? window.Billy.chf(+el.value) : 0; }
     else if (c === 'valueSuivantsChf') {
       r.valueSuivants = el.value ? window.Billy.chf(+el.value) : undefined;
-    } else if (c === 'minimumChf') {
-      r.minimum = el.value ? window.Billy.chf(+el.value) : undefined;
-    } else if (c === 'value') { r.value = Number(el.value) || 0; }
-    else if (c === 'tailleTranche') { r.tailleTranche = Number(el.value) || 30; }
-    else { r[c] = el.value; }
+    } else { r[c] = el.value; }
   }
 
   $('btn-ajouter-regle').addEventListener('click', function () {
     reglages.regles = reglages.regles || [];
     reglages.regles.push({
-      id: window.Billy.uuidv7(), role: 'base', label: 'Nouvelle règle',
-      conditions: [], calc: 'fixe', value: 0, per: 'nid',
-      sort: reglages.regles.length, isActive: true,
+      id: window.Billy.uuidv7(), label: 'Nouvelle règle',
+      conditions: [],
+      // Toujours identiques : un prix fixe, par nid, en prix de base.
+      role: 'base', calc: 'fixe', per: 'nid',
+      value: 0, sort: reglages.regles.length, isActive: true,
     });
     afficherRegles();
+    var d = document.querySelectorAll('.regle');
+    if (d.length) d[d.length - 1].classList.add('ouverte');
+  });
+
+  /* ---------- Listes modifiables ---------- */
+
+  var LISTES = [
+    { cle: 'insectes',    zone: 'liste-insectes', bouton: 'btn-ajouter-insecte',
+      exemple: 'Nouvel insecte' },
+    { cle: 'hauteurs',    zone: 'liste-hauteurs', bouton: 'btn-ajouter-hauteur',
+      exemple: 'Nouvelle hauteur' },
+    { cle: 'typesClient', zone: 'liste-types',    bouton: 'btn-ajouter-type',
+      exemple: 'Nouveau type' },
+  ];
+
+  function afficherListes() {
+    LISTES.forEach(function (L) {
+      var items = reglages[L.cle] || [];
+      $(L.zone).innerHTML = items.map(function (v, i) {
+        return '<div class="rangee" style="margin-bottom:6px">'
+          + '<input data-liste="' + L.cle + '" data-i="' + i + '" value="'
+          + (v.libelle || '').replace(/"/g, '&quot;') + '">'
+          + '<button class="secondaire" style="width:auto" '
+          + 'data-suppr-liste="' + L.cle + '.' + i + '">Retirer</button></div>';
+      }).join('');
+    });
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-liste]'), function (el) {
+        el.addEventListener('change', function () {
+          reglages[el.dataset.liste][+el.dataset.i].libelle = el.value;
+          afficherRegles();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-suppr-liste]'), function (b) {
+        b.addEventListener('click', function () {
+          var p = b.dataset.supprListe.split('.');
+          var item = reglages[p[0]][+p[1]];
+          // Une valeur utilisee par une regle ne doit pas disparaitre
+          // en silence : la regle cesserait de s'appliquer sans raison
+          // visible.
+          var utilisee = (reglages.regles || []).some(function (r) {
+            return (r.conditions || []).some(function (c) {
+              return (c.valeurs || []).indexOf(item.id) >= 0;
+            });
+          });
+          if (utilisee && !window.confirm(
+            '« ' + item.libelle + ' » est utilisé par une règle tarifaire. '
+            + 'La retirer rendra cette règle inopérante. Continuer ?')) return;
+          reglages[p[0]].splice(+p[1], 1);
+          afficherListes();
+          afficherRegles();
+        });
+      });
+  }
+
+  LISTES.forEach(function (L) {
+    $(L.bouton).addEventListener('click', function () {
+      reglages[L.cle] = reglages[L.cle] || [];
+      reglages[L.cle].push({ id: window.Billy.uuidv7(), libelle: L.exemple });
+      afficherListes();
+    });
   });
 
   /* ---------- Mon equipe ---------- */
 
   /*
     Sans rattachement, le collegue qui s'inscrit obtient SA PROPRE
-    entreprise : son agenda, ses factures, separes. C'est exactement le
-    defaut du site francais, qui range tout par personne connectee.
-
-    La verification vit dans PostgreSQL : le navigateur envoie une
-    adresse e-mail, la base fait le reste. Il ne peut donc pas
-    rattacher quelqu'un a l'entreprise d'un autre.
+    entreprise : son agenda, ses factures, separes.
   */
   function afficherMembres() {
     if (!depot.listerMembres) return;
@@ -1217,13 +1315,9 @@
   /* ---------- Reglages : sections repliables ---------- */
 
   /*
-    Huit sections deployees en permanence obligeaient a faire defiler
-    tout l'ecran pour changer un tarif. Regle du projet : ce qui est
-    rare doit rester ACCESSIBLE, pas VISIBLE.
-
-    Tout est replie au depart, sauf ce qui empeche encore de
-    facturer : la ou il reste quelque chose a faire, la section
-    s'ouvre d'elle-meme.
+    Regle du projet : ce qui est rare doit rester ACCESSIBLE, pas
+    VISIBLE. Tout est replie au depart, sauf ce qui empeche encore de
+    facturer.
   */
   function brancherSections() {
     Array.prototype.forEach.call(
@@ -1244,16 +1338,13 @@
       });
   }
 
-  /**
-   * Ce qui manque encore pour pouvoir facturer, en clair et en haut.
-   * Un ecran qui ne dit rien laisse chercher.
-   */
+  /** Ce qui manque encore pour pouvoir facturer, en clair et en haut. */
   function afficherResume() {
     var manque = window.BillySuisse.champsManquantsPourFacturer(reglages);
     var sansRegle = !(reglages.regles || []).some(function (r) {
-      return r.isActive !== false && r.role === 'base';
+      return r.isActive !== false;
     });
-    if (sansRegle) manque.push('au moins une règle de prix de base');
+    if (sansRegle) manque.push('au moins une règle de prix');
 
     if (!manque.length) {
       $('resume-reglages').innerHTML =
@@ -1265,9 +1356,9 @@
 
     // On ouvre les sections concernees : chercher soi-meme ou cliquer
     // est exactement ce qui fait perdre du temps.
-    if (manque.some(function (m) { return /entreprise|IBAN|NPA|localité/i.test(m); })) {
-      ouvrirSection('Votre entreprise');
-    }
+    if (manque.some(function (m) {
+      return /entreprise|IBAN|NPA|localité|adresse|TVA/i.test(m);
+    })) { ouvrirSection('Votre entreprise'); }
     if (sansRegle) ouvrirSection('Grille tarifaire');
   }
 
@@ -1504,7 +1595,6 @@
     reglages.tva.delaiJours = parseInt($('tva-delai').value, 10) || 30;
     reglages.tva.validiteDevisJours =
       parseInt($('devis-validite').value, 10) || 30;
-    reglages.majorations = $('maj-mode').value;
 
     // Les regles et le deplacement sont deja a jour : chaque champ
     // ecrit dans `reglages` au moment ou il change. Un formulaire
@@ -1543,10 +1633,17 @@
   var nidsSaisie = [];
   var coutsSaisie = [];
 
+  function remplirTypesClient() {
+    var courant = $('cli-type').value;
+    $('cli-type').innerHTML = (reglages.typesClient || []).map(function (t) {
+      return '<option value="' + t.id + '">' + t.libelle + '</option>';
+    }).join('');
+    if (courant) $('cli-type').value = courant;
+  }
+
   function nidVide() {
     var ins = (reglages.insectes || [])[0];
-    return { insectId: ins ? ins.id : '', quantity: 1,
-             locationId: '', heightId: '' };
+    return { insectId: ins ? ins.id : '', quantity: 1, heightId: '' };
   }
 
   function listeOptions(liste, courant, videLibelle) {
@@ -1573,10 +1670,6 @@
         + '<div><label>Nombre</label>'
         + '<input type="number" min="1" inputmode="numeric" data-n="' + i
         + '" data-c="quantity" value="' + n.quantity + '"></div></div>'
-        + '<label>Localisation</label>'
-        + '<select data-n="' + i + '" data-c="locationId">'
-        + listeOptions(reglages.localisations, n.locationId, 'Non précisée')
-        + '</select>'
         + '<label>Hauteur</label>'
         + '<select data-n="' + i + '" data-c="heightId">'
         + listeOptions(reglages.hauteurs, n.heightId, 'Non précisée')
@@ -2038,6 +2131,137 @@
     jourAffiche = new Date(); afficherAgenda();
   });
 
+  /* ---------- Ce qu'on note au telephone ---------- */
+
+  /*
+    Le collegue au telephone n'ouvre pas la grille tarifaire : il coche
+    ce que le client decrit. Ces trois choix suffisent a designer le
+    tarif applicable, donc a ANNONCER UN PRIX pendant l'appel — avec
+    les frais de deplacement, pour que le client sache combien preparer.
+  */
+  var rdvChoix = { insecte: '', typeClient: '', hauteur: '' };
+
+  function afficherChoixRdv() {
+    function boutons(zoneId, items, champ) {
+      $(zoneId).innerHTML = '<div class="choix">'
+        + (items || []).map(function (v) {
+            return '<button type="button" data-choix="' + champ
+              + '" data-v="' + v.id + '"'
+              + (rdvChoix[champ] === v.id ? ' class="choisi"' : '')
+              + '>' + v.libelle + '</button>';
+          }).join('') + '</div>';
+    }
+    boutons('rdv-insectes', reglages.insectes, 'insecte');
+    boutons('rdv-types', reglages.typesClient, 'typeClient');
+    boutons('rdv-hauteurs', reglages.hauteurs, 'hauteur');
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-choix]'), function (b) {
+        b.addEventListener('click', function () {
+          var champ = b.dataset.choix;
+          // Un second clic annule : on peut ne pas savoir la hauteur
+          // au telephone, et forcer un choix donnerait un faux prix.
+          rdvChoix[champ] = (rdvChoix[champ] === b.dataset.v)
+            ? '' : b.dataset.v;
+          afficherChoixRdv();
+          estimerPrixRdv();
+        });
+      });
+  }
+
+  /**
+   * Prix a annoncer au telephone : intervention + deplacement.
+   * Volontairement prudent — tant qu'on ne sait pas, on ne chiffre pas.
+   */
+  function estimerPrixRdv() {
+    var zone = $('rdv-estimation');
+    if (!zone) return;
+
+    if (!rdvChoix.insecte) {
+      zone.innerHTML = '<div class="muted">Choisissez un insecte pour '
+        + 'obtenir un prix.</div>';
+      return;
+    }
+
+    var nids = parseInt($('rdv-nids').value, 10) || 1;
+    var r = window.BillySuisse.chiffrer({
+      typeClient: rdvChoix.typeClient || 'particulier',
+      nids: [{ insectId: rdvChoix.insecte, quantity: nids,
+               heightId: rdvChoix.hauteur || undefined }],
+      npa: $('rdv-npa').value.trim(),
+      localite: $('rdv-localite').value.trim(),
+      distanceKm: rdvDistanceKm,
+    }, reglages);
+
+    if (r.erreur) {
+      zone.innerHTML = '<div class="info">Pas de tarif pour cette '
+        + 'combinaison : ' + r.erreur + '</div>';
+      return;
+    }
+
+    var h = r.lignes.map(function (l) {
+      return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
+        + window.Billy.formatChf(l.amount) + '</span></div>';
+    }).join('');
+    h += '<div class="total gros"><span>À annoncer</span><span>'
+      + window.Billy.formatChf(r.totaux.total) + ' CHF</span></div>';
+
+    // Le deplacement est ce que le client oublie le plus souvent : on
+    // le nomme explicitement plutot que de le noyer dans le total.
+    if (r.deplacement) {
+      h += '<p class="muted">Dont ' + r.deplacement.label + ' : '
+        + window.Billy.formatChf(r.deplacement.amount) + ' CHF. '
+        + 'À signaler au client.</p>';
+    } else if (rdvDistanceKm == null && $('rdv-npa').value.trim()) {
+      h += '<p class="muted">Frais de déplacement non calculés : '
+        + 'distance inconnue.</p>';
+    }
+    if ((r.aidesInformatives || []).length) {
+      h += '<p class="muted">Le client pourra demander un remboursement '
+        + 'à sa commune.</p>';
+    }
+    zone.innerHTML = '<div class="carte">' + h + '</div>';
+  }
+
+  /** Distance calculee depuis l'adresse saisie, ou null. */
+  var rdvDistanceKm = null;
+
+  function estimerDistanceRdv() {
+    var npa = $('rdv-npa').value.trim();
+    var localite = $('rdv-localite').value.trim();
+    if (npa.length < 4 && localite.length < 3) {
+      rdvDistanceKm = null; estimerPrixRdv(); return;
+    }
+    var e = reglages.entreprise || {};
+    var depart = [e.adresse, e.numero, e.npa, e.localite]
+      .filter(Boolean).join(' ');
+    if (!depart) { rdvDistanceKm = null; estimerPrixRdv(); return; }
+
+    var arrivee = [$('rdv-adresse').value.trim(), npa, localite]
+      .filter(Boolean).join(' ');
+    window.BillySuisse.geocoder(arrivee, window.fetch && window.fetch.bind(window))
+      .then(function (point) {
+        return window.BillySuisse.geocoder(
+          depart, window.fetch && window.fetch.bind(window))
+          .then(function (p0) {
+            rdvDistanceKm = (point && p0)
+              ? window.BillySuisse.distanceRouteKm(p0, point) : null;
+            estimerPrixRdv();
+          });
+      })
+      .catch(function () {
+        // Sans reseau ou adresse inconnue : on ne chiffre pas le
+        // deplacement plutot que d'annoncer un montant faux.
+        rdvDistanceKm = null;
+        estimerPrixRdv();
+      });
+  }
+
+  ['rdv-npa', 'rdv-localite', 'rdv-adresse'].forEach(function (id) {
+    $(id).addEventListener('change', estimerDistanceRdv);
+  });
+  $('rdv-nids').addEventListener('input', estimerPrixRdv);
+
   /* ---------- Prise de rendez-vous ---------- */
 
   /** Rendez-vous en cours de modification, ou null pour une creation. */
@@ -2054,7 +2278,6 @@
        'rdv-note'].forEach(function (i) { $(i).value = ''; });
       $('rdv-date').value = cleJour(jourAffiche);
       $('rdv-heure').value = '09:00';
-      $('rdv-duree').value = 45;
       $('titre-rdv').textContent = 'Nouveau rendez-vous';
     } else {
       var d = rdvEnEdition.donnees || {};
@@ -2064,13 +2287,21 @@
       $('rdv-date').value = cleJour(debut);
       $('rdv-heure').value = String(debut.getHours()).padStart(2, '0')
         + ':' + String(debut.getMinutes()).padStart(2, '0');
-      $('rdv-duree').value = rdvEnEdition.duree_min || 45;
       $('rdv-adresse').value = rdvEnEdition.adresse || '';
       $('rdv-npa').value = rdvEnEdition.npa || '';
       $('rdv-localite').value = rdvEnEdition.localite || '';
       $('rdv-note').value = d.note || '';
       $('titre-rdv').textContent = 'Modifier le rendez-vous';
     }
+    var d0 = (rdvEnEdition && rdvEnEdition.donnees) || {};
+    rdvChoix = {
+      insecte: d0.insecte || '', typeClient: d0.typeClient || '',
+      hauteur: d0.hauteur || '',
+    };
+    $('rdv-nids').value = d0.nidsAnnonces || 1;
+    rdvDistanceKm = null;
+    afficherChoixRdv();
+    estimerPrixRdv();
     $('sugg-rdv-nom').innerHTML = '';
     $('sugg-rdv-localite').innerHTML = '';
     montrer('rdv');
@@ -2104,7 +2335,7 @@
       // second rendez-vous et l'ancien resterait dans l'agenda.
       id: rdvEnEdition ? rdvEnEdition.id : window.Billy.uuidv7(),
       debut_le: debut.toISOString(),
-      duree_min: parseInt($('rdv-duree').value, 10) || 45,
+      duree_min: 45,
       statut: 'planifie',
       adresse: $('rdv-adresse').value.trim(),
       npa: $('rdv-npa').value.trim(),
@@ -2113,6 +2344,12 @@
         clientNom: nom,
         telephone: $('rdv-tel').value.trim(),
         note: $('rdv-note').value.trim(),
+        // Ce qui a ete note au telephone : repris tel quel sur le
+        // terrain, pour ne rien ressaisir.
+        insecte: rdvChoix.insecte,
+        typeClient: rdvChoix.typeClient,
+        hauteur: rdvChoix.hauteur,
+        nidsAnnonces: parseInt($('rdv-nids').value, 10) || 1,
       },
     };
 
@@ -2161,9 +2398,14 @@
     nidsSaisie = (d.nids && d.nids.length)
       ? d.nids.map(function (n) {
           return { insectId: n.insectId, quantity: n.quantity,
-                   locationId: n.locationId || '', heightId: n.heightId || '' };
+                   heightId: n.heightId || '' };
         })
-      : [nidVide()];
+      // Rien de saisi sur place : on part de ce que le collegue a note
+      // au telephone. Le terrain corrige si la realite differe.
+      : [{ insectId: d.insecte || nidVide().insectId,
+           quantity: d.nidsAnnonces || 1,
+           heightId: d.hauteur || '' }];
+    if (d.typeClient) $('cli-type').value = d.typeClient;
     coutsSaisie = (d.supplementsPonctuels || []).map(function (c) {
       return { label: c.label, amount: c.amount };
     });
@@ -2352,7 +2594,6 @@
       // intervention deja enregistree.
       nids: nidsSaisie.map(function (n) {
         return { insectId: n.insectId, quantity: n.quantity,
-                 locationId: n.locationId || undefined,
                  heightId: n.heightId || undefined };
       }),
       distanceKm: $('dist-km').value ? parseFloat($('dist-km').value) : null,
@@ -2697,7 +2938,8 @@
       mentions.push('Montants en CHF, TVA ' + reglages.tva.taux
         + ' % comprise.');
     } else {
-      mentions.push('Non assujetti à la TVA.');
+      // Mention exacte attendue sur la facture d'un non-assujetti.
+      mentions.push('Non assujetti à la TVA selon l\u2019art. 10 al. 2 LTVA');
     }
     if ((d.client || {}).signature) {
       mentions.push('Intervention confirmée par la signature du client.');
