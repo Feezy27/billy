@@ -126,6 +126,50 @@
   }
 
   /* ------------------------------------------------------------
+     Choix de la regle applicable
+     ------------------------------------------------------------ */
+
+  /*
+    LA REGLE LA PLUS PRECISE GAGNE.
+
+    Le moteur retient la premiere regle qui correspond, dans l'ordre du
+    champ `sort`. Laisser cet ordre a la charge de l'utilisateur est un
+    piege : « Guepes » placee avant « Guepes a plus de 15 m » repond la
+    premiere, et le prix est faux sans que rien ne le signale. C'est
+    exactement ce qui est arrive — un nid en hauteur facture au tarif
+    d'un nid de fondation.
+
+    On classe donc les regles par NOMBRE DE CONDITIONS, de la plus
+    precise a la plus generale. « Guepes + plus de 15 m » (deux
+    conditions) est examinee avant « Guepes » (une), elle-meme avant
+    une regle sans condition.
+
+    A precision egale, l'ordre choisi dans l'ecran departage.
+  */
+  function ordonnerParPrecision(regles) {
+    return (regles || [])
+      .filter(function (r) { return r.isActive !== false; })
+      .map(function (r, i) {
+        // Une condition sans valeur cochee ne restreint rien : elle ne
+        // doit pas faire passer la regle pour plus precise qu'elle
+        // n'est.
+        var precision = (r.conditions || []).filter(function (c) {
+          return (c.valeurs || []).length > 0;
+        }).length;
+        return { r: r, precision: precision, rang: i };
+      })
+      .sort(function (a, b) {
+        if (b.precision !== a.precision) return b.precision - a.precision;
+        return a.rang - b.rang;
+      })
+      .map(function (x, i) {
+        // `sort` est ce que le moteur regarde : on le recalcule ici
+        // plutot que de demander a l'utilisateur de le tenir a jour.
+        return Object.assign({}, x.r, { sort: i, role: 'base' });
+      });
+  }
+
+  /* ------------------------------------------------------------
      Chiffrage d'une intervention
      ------------------------------------------------------------ */
 
@@ -160,9 +204,7 @@
       */
       var aideParNid = 0;
       var aidesAppliquees = { deducted: [], informational: [] };
-      var reglesActives = (reglages.regles || []).filter(function (r) {
-        return r.isActive !== false;
-      });
+      var reglesActives = ordonnerParPrecision(reglages.regles || []);
 
       if ((reglages.aides || []).length) {
         var sansAide = B.priceInterventionFromRules({
@@ -426,6 +468,7 @@
   }
 
   global.BillySuisse = {
+    ordonnerParPrecision: ordonnerParPrecision,
     volDoiseauKm: volDoiseauKm,
     distanceRouteKm: distanceRouteKm,
     geocoder: geocoder,

@@ -102,12 +102,24 @@
   .regle.ouverte .regle-corps{display:block}
   .regle-outils{display:flex;gap:6px}
   .regle-outils button{width:auto;padding:9px 12px;margin:0;font-size:13px}
-  .choix{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
-  .choix button{width:auto;margin:0;padding:9px 13px;font-size:13px;
-    font-weight:600;background:#14161a;color:var(--ivoire);
-    border:1px solid var(--ligne);border-radius:99px}
+  /* Groupe de choix.
+     Sur fond sombre, un bouton sombre borde d'un gris discret ne se
+     lit pas comme un bouton : on ne comprend pas qu'il faut cliquer,
+     ni ou s'arrete un groupe. On encadre donc chaque groupe et on
+     rend les pastilles franchement visibles. */
+  .groupe-choix{background:#1d2027;border:1px solid var(--ligne);
+    border-radius:14px;padding:12px;margin-bottom:14px}
+  .groupe-choix > .titre{color:var(--ambre);font-size:11px;font-weight:800;
+    letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px}
+  .choix{display:flex;flex-wrap:wrap;gap:8px}
+  .choix button{width:auto;margin:0;padding:11px 16px;font-size:15px;
+    font-weight:600;background:#2b3038;color:var(--ivoire);
+    border:1px solid #454b56;border-radius:99px}
+  .choix button:active{transform:scale(.97)}
   .choix button.choisi{background:var(--ambre);color:#241c00;
-    border-color:var(--ambre)}
+    border-color:var(--ambre);font-weight:800;
+    box-shadow:0 0 0 3px rgba(242,183,5,.22)}
+  .groupe-choix .rappel{color:var(--brume);font-size:12px;margin-top:9px}
   .ecran{display:none}
   .ecran.visible{display:block}
   .ligne-facture{display:flex;justify-content:space-between;
@@ -204,12 +216,19 @@
         <input id="rdv-localite" autocomplete="off"></div>
     </div>
     <div id="sugg-rdv-localite" class="suggestions"></div>
-    <label>Insecte</label>
-    <div id="rdv-insectes"></div>
-    <label>Type de client</label>
-    <div id="rdv-types"></div>
-    <label>Hauteur estimée du nid</label>
-    <div id="rdv-hauteurs"></div>
+    <div class="groupe-choix">
+      <div class="titre">Insecte</div>
+      <div id="rdv-insectes"></div>
+      <div class="rappel">Touchez pour choisir. Un second appui annule.</div>
+    </div>
+    <div class="groupe-choix">
+      <div class="titre">Type de client</div>
+      <div id="rdv-types"></div>
+    </div>
+    <div class="groupe-choix">
+      <div class="titre">Hauteur estimée du nid</div>
+      <div id="rdv-hauteurs"></div>
+    </div>
     <label for="rdv-nids">Nombre de nids annoncé (indicatif)</label>
     <input id="rdv-nids" type="number" min="1" value="1" inputmode="numeric">
 
