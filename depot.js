@@ -190,6 +190,18 @@
     texte lisible : une facture qui ne s'enregistre pas en silence
     serait pire que tout.
   */
+  /*
+    Distingue « pas de reseau » de « le serveur refuse ».
+
+    La difference est essentielle : une panne de reseau se retente,
+    un refus du serveur ne se retentera jamais avec succes et
+    bloquerait la file indefiniment.
+  */
+  function estReseau(e) {
+    var m = String((e && e.message) || e || '');
+    return /fetch|network|réseau|reseau|Failed|offline|NetworkError/i.test(m);
+  }
+
   function verifier(r) {
     if (r && r.error) {
       throw new Error(r.error.message || 'Erreur Supabase');
@@ -214,6 +226,7 @@
   function DepotSupabase(client) {
     this.mode = 'supabase';
     this.client = client;
+    DepotSupabase.dernier = this;
     /** Vrai quand la derniere lecture a du puiser dans le miroir. */
     this.horsLigne = false;
   }
@@ -263,9 +276,19 @@
     });
   };
 
-  DepotSupabase.prototype.ecrireReglages = function (reglages) {
+  DepotSupabase.prototype.envoyerReglages = function (reglages) {
     return this.client.rpc('enregistrer_reglages', { p_reglages: reglages })
       .then(function (r) { verifier(r); return reglages; });
+  };
+
+  DepotSupabase.prototype.ecrireReglages = function (reglages) {
+    var self = this;
+    return this.envoyerReglages(reglages).catch(function (e) {
+      if (!estReseau(e)) throw e;
+      var op = { type: 'reglages', id: 'reglages', valeur: reglages };
+      self.miroirAppliquer(op); enFile(op);
+      return reglages;
+    });
   };
 
   DepotSupabase.prototype.listerInterventions = function () {
@@ -285,15 +308,122 @@
     partir de qui est connecte (DEFAULT mon_entreprise()). L'envoyer
     depuis le navigateur serait a la fois inutile et dangereux.
   */
-  DepotSupabase.prototype.enregistrerIntervention = function (it) {
+  DepotSupabase.prototype.envoyerIntervention = function (it) {
     return this.client.from('rdvs').upsert(it)
       .then(function (r) { verifier(r); return it; });
   };
 
-  DepotSupabase.prototype.supprimerIntervention = function (id) {
+  DepotSupabase.prototype.enregistrerIntervention = function (it) {
+    var self = this;
+    return this.envoyerIntervention(it).catch(function (e) {
+      if (!estReseau(e)) throw e;
+      var op = { type: 'intervention', id: it.id, valeur: it };
+      self.miroirAppliquer(op); enFile(op);
+      return it;
+    });
+  };
+
+  /* ------------------------------------------------------------
+     FILE D'ATTENTE
+
+     Sans reseau, une ecriture echoue et le travail est perdu : une
+     intervention terminee dans une cave, un rendez-vous deplace au
+     telephone. On met donc le geste en file, on l'applique tout de
+     suite a la copie locale — pour que l'ecran montre la verite — et
+     on le rejoue au retour du reseau.
+
+     L'identifiant est fabrique par le navigateur AVANT l'envoi.
+     Rejouer deux fois le meme geste ecrit donc la meme ligne : aucun
+     doublon, meme si la synchronisation part deux fois.
+     ------------------------------------------------------------ */
+
+  function enFile(op) {
+    // Un geste mis en file signifie que le reseau manque. L'ecran doit
+    // le savoir : sans cela, le bandeau conseillerait « rouvrez dans
+    // une zone couverte » a quelqu'un qui est justement hors zone.
+    if (DepotSupabase.dernier) DepotSupabase.dernier.horsLigne = true;
+    var file = lire('file', []);
+    // Un meme objet reecrit plusieurs fois hors ligne ne doit occuper
+    // qu'une place : c'est son dernier etat qui compte.
+    var i = file.findIndex(function (x) {
+      return x.type === op.type && x.id === op.id;
+    });
+    if (i >= 0) file[i] = op; else file.push(op);
+    ecrire('file', file);
+    return file.length;
+  }
+
+  DepotSupabase.prototype.enAttente = function () {
+    return lire('file', []).length;
+  };
+
+  /** Applique un geste a la copie locale, pour que l'ecran soit juste. */
+  DepotSupabase.prototype.miroirAppliquer = function (op) {
+    if (op.type === 'reglages') { ecrire('miroir.reglages', op.valeur); return; }
+    var cle = (op.type === 'facture') ? 'miroir.factures' : 'miroir.interventions';
+    var liste = lire(cle, []);
+    var i = liste.findIndex(function (x) { return x.id === op.id; });
+    if (op.type === 'suppression') {
+      if (i >= 0) liste.splice(i, 1);
+    } else if (i >= 0) { liste[i] = op.valeur; } else { liste.unshift(op.valeur); }
+    ecrire(cle, liste);
+  };
+
+  /**
+   * Rejoue la file. Renvoie { envoyes, restants }.
+   * Un geste qui echoue pour une raison AUTRE que le reseau est
+   * retire : le garder bloquerait la file pour toujours.
+   */
+  DepotSupabase.prototype.synchroniser = function () {
+    var self = this;
+    var file = lire('file', []);
+    if (!file.length) return Promise.resolve({ envoyes: 0, restants: 0 });
+
+    var envoyes = 0;
+    var reste = [];
+    var refuses = [];
+
+    function suivant(i) {
+      if (i >= file.length) {
+        ecrire('file', reste);
+        return { envoyes: envoyes, restants: reste.length, refuses: refuses };
+      }
+      var op = file[i];
+      var envoi = (op.type === 'reglages')
+        ? self.envoyerReglages(op.valeur)
+        : (op.type === 'facture')
+          ? self.envoyerFacture(op.valeur)
+          : (op.type === 'suppression')
+            ? self.envoyerSuppression(op.id)
+            : self.envoyerIntervention(op.valeur);
+
+      return envoi.then(function () { envoyes++; })
+        .catch(function (e) {
+          if (/fetch|network|réseau|reseau|Failed/i.test(String(e.message || e))) {
+            reste.push(op);        // toujours hors ligne : on garde
+          } else {
+            refuses.push({ op: op, raison: e.message || String(e) });
+          }
+        })
+        .then(function () { return suivant(i + 1); });
+    }
+    return suivant(0);
+  };
+
+  DepotSupabase.prototype.envoyerSuppression = function (id) {
     return this.client.from('rdvs')
       .update({ supprime_le: new Date().toISOString() }).eq('id', id)
       .then(function (r) { verifier(r); return true; });
+  };
+
+  DepotSupabase.prototype.supprimerIntervention = function (id) {
+    var self = this;
+    return this.envoyerSuppression(id).catch(function (e) {
+      if (!estReseau(e)) throw e;
+      var op = { type: 'suppression', id: id };
+      self.miroirAppliquer(op); enFile(op);
+      return true;
+    });
   };
 
   DepotSupabase.prototype.listerMembres = function () {
@@ -326,14 +456,41 @@
   };
 
   /** C'est PostgreSQL qui attribue le numero, pas le navigateur. */
+  /*
+    Le numero, lui, ne peut PAS etre attribue hors ligne : seul le
+    compteur de PostgreSQL garantit qu'il n'existe pas deja. En
+    inventer un au telephone, c'est exactement le defaut du site
+    francais — sept doublons sur dix facturations simultanees.
+
+    On refuse donc, avec un message qui dit quoi faire. Le travail,
+    lui, est deja enregistre : il suffira de facturer au retour.
+  */
   DepotSupabase.prototype.prochainNumeroFacture = function (serie) {
     return this.client.rpc('prochain_numero_facture', { p_serie: serie || 'F' })
-      .then(function (r) { verifier(r); return r.data; });
+      .then(function (r) { verifier(r); return r.data; })
+      .catch(function (e) {
+        if (estReseau(e)) {
+          throw new Error('Sans réseau, impossible d\u2019attribuer un numéro : '
+            + 'il pourrait exister déjà. L\u2019intervention est enregistrée, '
+            + 'facturez-la de retour dans une zone couverte.');
+        }
+        throw e;
+      });
+  };
+
+  DepotSupabase.prototype.envoyerFacture = function (f) {
+    return this.client.from('factures').upsert(f)
+      .then(function (r) { verifier(r); return f; });
   };
 
   DepotSupabase.prototype.enregistrerFacture = function (f) {
-    return this.client.from('factures').upsert(f)
-      .then(function (r) { verifier(r); return f; });
+    var self = this;
+    return this.envoyerFacture(f).catch(function (e) {
+      if (!estReseau(e)) throw e;
+      var op = { type: 'facture', id: f.id, valeur: f };
+      self.miroirAppliquer(op); enFile(op);
+      return f;
+    });
   };
 
   /* ---------- Choix automatique ---------- */

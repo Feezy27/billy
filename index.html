@@ -227,8 +227,9 @@
 
   <div class="kicker">Détails</div>
   <div class="carte">
-    <label for="dist-km">Distance aller (km) — facultatif</label>
+    <label for="dist-km">Distance aller (km)</label>
     <input id="dist-km" type="number" min="0" inputmode="decimal">
+    <div id="etat-distance"></div>
     <label for="duree-min">Durée sur place (min) — facultatif</label>
     <input id="duree-min" type="number" min="0" inputmode="numeric">
   </div>
@@ -281,6 +282,8 @@
     <button id="onglet-factures">Factures</button>
     <button id="onglet-devis" class="secondaire">Devis</button>
   </div>
+  <div id="bilan"></div>
+  <div id="resume-impayes"></div>
   <div id="liste-factures"></div>
   <div id="liste-devis" style="display:none"></div>
 </div>
@@ -294,6 +297,7 @@
     <div class="carte" id="qr-affichage"></div>
   </div>
   <button id="btn-imprimer">Imprimer / enregistrer en PDF</button>
+  <button id="btn-payee" class="secondaire">Marquer comme payée</button>
   <div id="etat-facture"></div>
   <button id="btn-annuler-facture" class="secondaire">Annuler cette facture</button>
   <button id="btn-retour-factures" class="secondaire">Retour</button>
@@ -493,6 +497,11 @@
     <button id="btn-exporter">Enregistrer une sauvegarde</button>
     <p class="muted">Rangez le fichier ailleurs que sur cet appareil :
       clé USB, OneDrive, Google Drive.</p>
+    <label for="annee-compta">Extrait comptable de l'année</label>
+    <input id="annee-compta" type="number" inputmode="numeric">
+    <button id="btn-export-compta" class="secondaire">Télécharger le tableau
+      des factures</button>
+    <p class="muted">Fichier lisible par Excel, pour votre fiduciaire.</p>
     <label for="fichier-import">Restaurer depuis une sauvegarde</label>
     <input id="fichier-import" type="file" accept="application/json,.json">
     <div id="etat-import"></div>
@@ -631,7 +640,16 @@
   }
 
   function chargerTout() {
-    return depot.lireReglages().then(function (r) {
+    // On rejoue d'abord ce qui attend : sinon on relirait le serveur
+    // sans lui avoir envoye le travail fait hors ligne, et l'ecran
+    // reviendrait a l'etat d'avant.
+    var prealable = depot.synchroniser
+      ? depot.synchroniser().catch(function () { return 0; })
+      : Promise.resolve(0);
+
+    return prealable.then(function () {
+      return depot.lireReglages();
+    }).then(function (r) {
       reglages = r || window.BillySuisse.reglagesParDefaut();
       // Un jeu de reglages ancien peut manquer de champs ajoutes
       // depuis : on complete plutot que de planter.
@@ -705,6 +723,7 @@
     $('tva-numero').value = reglages.tva.numero || '';
     $('tva-delai').value = reglages.tva.delaiJours || 30;
     $('devis-validite').value = reglages.tva.validiteDevisJours || 30;
+    $('annee-compta').value = new Date().getFullYear();
     $('maj-mode').value = reglages.majorations || 'plus_elevee';
     var deg = reglages.degressivite;
     $('deg-type').value = deg ? deg.type : '';
@@ -1748,6 +1767,103 @@
   brancherSuggestionLocalite('rdv-npa', 'rdv-localite', 'sugg-rdv-localite');
   brancherSuggestionLocalite('cli-npa', 'cli-localite', 'sugg-cli-localite');
 
+  /* ---------- Distance automatique ---------- */
+
+  /*
+    Le geocodeur suisse officiel donne les coordonnees d'une adresse.
+    En comparant celle de l'entreprise et celle du client, on obtient
+    une distance — que Philippe saisissait a la main.
+
+    TROIS PRINCIPES.
+
+    On ne remplace JAMAIS une valeur saisie. Un kilometrage corrige a
+    la main l'a ete pour une raison ; l'ecraser par un calcul serait
+    la pire des trahisons sur un champ qui determine un prix.
+
+    On dit d'ou vient le chiffre. « 42 km » sans explication laisse
+    croire a une mesure ; c'est une estimation a vol d'oiseau majoree
+    de 30 %.
+
+    En cas d'echec, on se TAIT. Le service peut etre indisponible, le
+    reseau coupe, le navigateur peut refuser l'appel : la saisie
+    manuelle reste la reference et rien ne doit bloquer.
+  */
+
+  var cacheGeo = {};
+  var positionEntreprise = null;
+
+  function chargerCacheGeo() {
+    try {
+      cacheGeo = JSON.parse(
+        window.localStorage.getItem('billyswiss.geo') || '{}');
+    } catch (e) { cacheGeo = {}; }
+  }
+
+  function rangerCacheGeo() {
+    try {
+      window.localStorage.setItem('billyswiss.geo', JSON.stringify(cacheGeo));
+    } catch (e) { /* stockage refuse */ }
+  }
+
+  function appelReseau(url) {
+    return window.fetch(url, { signal: undefined });
+  }
+
+  function adresseEntreprise() {
+    var e = reglages.entreprise || {};
+    return [e.adresse, e.numero, e.npa, e.localite]
+      .filter(Boolean).join(' ');
+  }
+
+  function adresseClient() {
+    return [$('cli-adresse').value, $('cli-npa').value, $('cli-localite').value]
+      .map(function (x) { return String(x || '').trim(); })
+      .filter(Boolean).join(' ');
+  }
+
+  /** Estime la distance et la propose, sans jamais l'imposer. */
+  function estimerDistance() {
+    var depart = adresseEntreprise();
+    var arrivee = adresseClient();
+    if (!depart || arrivee.length < 4) { message('etat-distance', ''); return; }
+
+    // Deja saisi a la main : on ne touche a rien, mais on le dit.
+    if (String($('dist-km').value).trim() !== '') {
+      message('etat-distance', 'Distance saisie à la main : conservée.', 'info');
+      return;
+    }
+
+    var G = window.BillySuisse.geocoder;
+    Promise.all([
+      G(depart, appelReseau, cacheGeo),
+      G(arrivee, appelReseau, cacheGeo),
+    ]).then(function (p) {
+      rangerCacheGeo();
+      var km = window.BillySuisse.distanceRouteKm(p[0], p[1]);
+      if (km == null) {
+        // Silence volontaire : un message d'erreur a chaque frappe
+        // serait plus penible qu'utile.
+        message('etat-distance', '');
+        return;
+      }
+      // Une derniere fois : l'utilisateur a pu saisir pendant l'appel.
+      if (String($('dist-km').value).trim() !== '') return;
+      $('dist-km').value = km;
+      message('etat-distance', 'Estimation : ' + km + ' km (à vol d\u2019oiseau '
+        + '+ 30 %). Modifiable.', 'ok');
+      rafraichirChiffrage();
+    }).catch(function () { message('etat-distance', ''); });
+  }
+
+  /*
+    Declenche a la SORTIE des champs d'adresse, pas a chaque lettre :
+    interroger le service a chaque frappe le solliciterait pour rien et
+    donnerait des resultats sur des adresses incompletes.
+  */
+  ['cli-adresse', 'cli-npa', 'cli-localite'].forEach(function (id) {
+    $(id).addEventListener('blur', estimerDistance);
+  });
+
   /* ---------- Etat de la connexion ---------- */
 
   /*
@@ -1759,9 +1875,20 @@
   function afficherBandeauHorsLigne() {
     var zone = $('bandeau-horsligne');
     if (!zone) return;
-    if (!depot || !depot.horsLigne) { zone.innerHTML = ''; return; }
+    var attente = (depot && depot.enAttente)
+      ? depot.enAttente() : 0;
+    if (!depot || (!depot.horsLigne && !attente)) { zone.innerHTML = ''; return; }
+    if (!depot.horsLigne && attente) {
+      // Revenu en ligne mais des gestes n'ont pas pu partir : le
+      // silence laisserait croire que tout est synchronise.
+      zone.innerHTML = '<div class="info">' + attente + ' geste'
+        + (attente > 1 ? 's' : '') + ' en attente d\u2019envoi. '
+        + 'Rouvrez l\u2019application dans une zone couverte.</div>';
+      return;
+    }
 
     var quand = depot.dateMiroir && depot.dateMiroir();
+    var enAttente = depot.enAttente ? depot.enAttente() : 0;
     var texte = 'Sans réseau — données de la dernière synchronisation';
     if (quand) {
       var d = new Date(quand);
@@ -1769,7 +1896,12 @@
         + d.toLocaleTimeString('fr-CH',
             { hour: '2-digit', minute: '2-digit' }) + ')';
     }
-    texte += '. Vous pouvez consulter, pas encore enregistrer.';
+    texte += '. Vos saisies sont conservées et partiront au retour du '
+      + 'réseau.';
+    if (enAttente) {
+      texte += ' ' + enAttente + ' geste'
+        + (enAttente > 1 ? 's' : '') + ' en attente d\u2019envoi.';
+    }
     zone.innerHTML = '<div class="alerte">' + texte + '</div>';
   }
 
@@ -1976,6 +2108,7 @@
       jourAffiche = new Date(ligne.debut_le);
       afficherAgenda();
       afficherInterventions();
+      afficherBandeauHorsLigne();
       montrer('agenda');
     }).catch(function (e) {
       message('etat-rdv', 'Enregistrement impossible : ' + (e.message || e));
@@ -2181,6 +2314,7 @@
     effacerSignature();
     $('sugg-cli-nom').innerHTML = '';
     $('sugg-cli-localite').innerHTML = '';
+    message('etat-distance', '');
     afficherNids();
     afficherCouts();
     rafraichirChiffrage();
@@ -2286,6 +2420,7 @@
       rdvEnCours = null;
       afficherAgenda();
       afficherInterventions();
+      afficherBandeauHorsLigne();
       montrer('interventions');
     }).catch(function (e) {
       message('carte-chiffrage', 'Enregistrement impossible : ' + (e.message || e));
@@ -2331,6 +2466,8 @@
 
   function afficherFactures() {
     afficherDevis();
+    afficherBilan();
+    afficherImpayes();
     var liste = lesFactures();
     if (!liste.length) {
       $('liste-factures').innerHTML =
@@ -2341,7 +2478,9 @@
       var annulee = (f.donnees || {}).annulee;
       return '<div class="carte" data-facture="' + f.id + '">'
         + '<strong>' + f.numero + '</strong>'
-        + (annulee ? ' <span class="pastille">Annulée</span>' : '')
+        + (annulee ? ' <span class="pastille">Annulée</span>'
+          : f.payee_le ? ' <span class="pastille">Payée</span>'
+            : ' <span class="pastille">En attente</span>')
         + '<div class="muted">'
         + ((f.donnees && f.donnees.client && f.donnees.client.clientNom) || '')
         + ' · ' + window.Billy.formatChf(f.total_rappen) + ' CHF</div></div>';
@@ -2401,6 +2540,13 @@
       ? 'Facture annulée : ' + (f.donnees.motifAnnulation || '')
       : '', 'info');
     $('btn-annuler-facture').style.display = annulee ? 'none' : 'block';
+    $('btn-payee').style.display = annulee ? 'none' : 'block';
+    $('btn-payee').textContent = f.payee_le
+      ? 'Annuler le paiement' : 'Marquer comme payée';
+    if (f.payee_le && !annulee) {
+      message('etat-facture', 'Payée le '
+        + new Date(f.payee_le).toLocaleDateString('fr-CH'), 'ok');
+    }
     var d = f.donnees || {};
     ecrireEnteteFacture(f, d);
     var h = (d.lignes || []).map(function (l) {
@@ -2545,6 +2691,216 @@
     }
     $(cible).innerHTML = h;
   }
+
+  /* ---------- Bilan d'activite ---------- */
+
+  /*
+    Ce que l'entreprise rapporte reellement.
+
+    On compte sur ce qui a ETE FACTURE, pas sur les interventions :
+    une intervention non facturee n'a rapporte rien, et la compter
+    donnerait un chiffre flatteur mais faux.
+
+    Les factures annulees sont exclues : elles ne seront jamais
+    encaissees.
+  */
+  function bilan(depuis, jusqua) {
+    var retenues = lesFactures().filter(function (f) {
+      if ((f.donnees || {}).annulee) return false;
+      var t = new Date(f.emise_le).getTime();
+      return t >= depuis.getTime() && t < jusqua.getTime();
+    });
+
+    var facture = 0, encaisse = 0;
+    var parInsecte = {};
+
+    retenues.forEach(function (f) {
+      facture += f.total_rappen || 0;
+      if (f.payee_le) encaisse += f.total_rappen || 0;
+
+      // Repartition par insecte : quel traitement fait vivre
+      // l'entreprise. Le montant est attribue au premier nid de la
+      // facture — approximatif quand une intervention en melange
+      // plusieurs, mais suffisant pour degager une tendance.
+      var nids = ((f.donnees || {}).client || {}).nids || [];
+      var id = nids.length ? nids[0].insectId : 'autre';
+      parInsecte[id] = (parInsecte[id] || 0) + (f.total_rappen || 0);
+    });
+
+    return {
+      nombre: retenues.length,
+      facture: facture,
+      encaisse: encaisse,
+      moyenne: retenues.length ? Math.round(facture / retenues.length) : 0,
+      parInsecte: parInsecte,
+    };
+  }
+
+  function afficherBilan() {
+    var zone = $('bilan');
+    if (!zone) return;
+    var maintenant = new Date();
+    var debutMois = new Date(maintenant.getFullYear(),
+      maintenant.getMonth(), 1);
+    var debutAnnee = new Date(maintenant.getFullYear(), 0, 1);
+    var finAnnee = new Date(maintenant.getFullYear() + 1, 0, 1);
+
+    var mois = bilan(debutMois, finAnnee);
+    var annee = bilan(debutAnnee, finAnnee);
+
+    if (!annee.nombre) { zone.innerHTML = ''; return; }
+
+    var libelles = window.BillySuisse.libellesInsectes(reglages);
+    var repartition = Object.keys(annee.parInsecte)
+      .sort(function (a, b) { return annee.parInsecte[b] - annee.parInsecte[a]; })
+      .slice(0, 4)
+      .map(function (id) {
+        var part = Math.round(annee.parInsecte[id] / annee.facture * 100);
+        return '<div class="ligne-facture"><span>'
+          + (libelles[id] || 'Autre') + '</span><span>'
+          + window.Billy.formatChf(annee.parInsecte[id])
+          + ' · ' + part + ' %</span></div>';
+      }).join('');
+
+    zone.innerHTML = '<div class="carte">'
+      + '<div class="kicker" style="margin-top:0">Ce mois</div>'
+      + '<div class="ligne-facture"><span>' + mois.nombre + ' facture'
+      + (mois.nombre > 1 ? 's' : '') + '</span><span>'
+      + window.Billy.formatChf(mois.facture) + ' CHF</span></div>'
+      + '<div class="kicker">Depuis janvier</div>'
+      + '<div class="ligne-facture"><span>' + annee.nombre + ' facture'
+      + (annee.nombre > 1 ? 's' : '') + '</span><span>'
+      + window.Billy.formatChf(annee.facture) + ' CHF</span></div>'
+      + '<div class="ligne-facture"><span>Encaissé</span><span>'
+      + window.Billy.formatChf(annee.encaisse) + ' CHF</span></div>'
+      + '<div class="ligne-facture"><span>Moyenne par intervention</span>'
+      + '<span>' + window.Billy.formatChf(annee.moyenne) + ' CHF</span></div>'
+      + (repartition ? '<div class="kicker">Ce qui fait vivre l\u2019entreprise</div>'
+          + repartition : '')
+      + '</div>';
+  }
+
+  /* ---------- Paiements ---------- */
+
+  /*
+    Une facture emise n'est pas une facture payee. Sans ce suivi,
+    impossible de savoir qui relancer — et sur une saison entiere,
+    c'est de l'argent qui ne rentre pas.
+
+    On enregistre la DATE du paiement, pas un simple oui/non : c'est
+    elle qui sert a la comptabilite et aux relances.
+  */
+  $('btn-payee').addEventListener('click', function () {
+    var f = factureAffichee;
+    if (!f || (f.donnees || {}).annulee) return;
+    var deja = !!f.payee_le;
+
+    if (!deja && !window.confirm('Marquer la facture ' + f.numero
+      + ' comme payée aujourd\u2019hui ?')) return;
+    if (deja && !window.confirm('Annuler le paiement de ' + f.numero + ' ?')) {
+      return;
+    }
+
+    f.payee_le = deja ? null : new Date().toISOString();
+    depot.enregistrerFacture(f).then(function () {
+      afficherFactures();
+      ouvrirFacture(f);
+    }).catch(function (e) {
+      message('etat-facture', 'Enregistrement impossible : ' + (e.message || e));
+    });
+  });
+
+  /** Ce qui reste a encaisser, en tete de la liste. */
+  function afficherImpayes() {
+    var impayees = lesFactures().filter(function (f) {
+      return !f.payee_le && !(f.donnees || {}).annulee;
+    });
+    if (!impayees.length) {
+      $('resume-impayes').innerHTML = lesFactures().length
+        ? '<div class="ok">Tout est encaissé.</div>' : '';
+      return;
+    }
+    var total = impayees.reduce(function (t, f) {
+      return t + (f.total_rappen || 0);
+    }, 0);
+
+    // Une facture depassee se releve : c'est le moment de relancer.
+    var delai = (reglages.tva && reglages.tva.delaiJours) || 30;
+    var enRetard = impayees.filter(function (f) {
+      return new Date(f.emise_le).getTime() + delai * 86400000 < Date.now();
+    });
+
+    var h = impayees.length + ' facture' + (impayees.length > 1 ? 's' : '')
+      + ' en attente de paiement — ' + window.Billy.formatChf(total) + ' CHF';
+    if (enRetard.length) {
+      h += ', dont ' + enRetard.length + ' au-delà du délai';
+    }
+    $('resume-impayes').innerHTML =
+      '<div class="' + (enRetard.length ? 'alerte' : 'info') + '">'
+      + h + '.</div>';
+  }
+
+  /* ---------- Extrait comptable ---------- */
+
+  /*
+    La sauvegarde JSON est illisible pour une fiduciaire. Ce tableau
+    l'est : une ligne par facture, avec ce qu'un comptable demande.
+
+    Les factures ANNULEES y figurent, marquees comme telles. Les
+    faire disparaitre laisserait un trou dans la numerotation, et un
+    trou inexplique est precisement ce qui declenche un controle.
+  */
+  function extraitComptable(annee) {
+    var lignes = [[
+      'Numero', 'Date', 'Client', 'NPA', 'Localite',
+      'Total CHF', 'dont TVA CHF', 'Payee le', 'Statut',
+    ]];
+    lesFactures()
+      .filter(function (f) {
+        return new Date(f.emise_le).getFullYear() === annee;
+      })
+      .sort(function (a, b) { return a.numero.localeCompare(b.numero); })
+      .forEach(function (f) {
+        var d = f.donnees || {};
+        var c = d.client || {};
+        lignes.push([
+          f.numero,
+          new Date(f.emise_le).toLocaleDateString('fr-CH'),
+          c.clientNom || '',
+          c.npa || '', c.localite || '',
+          window.Billy.formatChf(f.total_rappen),
+          window.Billy.formatChf((d.totaux && d.totaux.vat) || 0),
+          f.payee_le ? new Date(f.payee_le).toLocaleDateString('fr-CH') : '',
+          d.annulee ? 'Annulée' : (f.payee_le ? 'Payée' : 'En attente'),
+        ]);
+      });
+    return lignes;
+  }
+
+  function versCsv(lignes) {
+    return lignes.map(function (l) {
+      return l.map(function (c) {
+        var t = String(c == null ? '' : c);
+        // Un nom contenant une virgule couperait la colonne en deux.
+        return /[";\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+      }).join(';');
+    }).join('\r\n');
+  }
+
+  $('btn-export-compta').addEventListener('click', function () {
+    var annee = parseInt($('annee-compta').value, 10)
+      || new Date().getFullYear();
+    var lignes = extraitComptable(annee);
+    if (lignes.length < 2) {
+      message('etat-sauvegarde', 'Aucune facture en ' + annee + '.', 'info');
+      return;
+    }
+    // Le « \ufeff » fait comprendre a Excel que le fichier est en
+    // UTF-8 : sans lui, les accents sortent en charabia.
+    telecharger('factures-' + annee + '.csv', '\ufeff' + versCsv(lignes));
+    message('etat-sauvegarde',
+      (lignes.length - 1) + ' facture(s) exportée(s) pour ' + annee + '.', 'ok');
+  });
 
   $('btn-retour-factures').addEventListener('click', function () {
     montrer('factures');
@@ -2715,6 +3071,10 @@
     });
 
   window.BillyApp = { demarrer: demarrer, montrer: montrer,
+                      bilan: bilan,
+                      extraitComptable: extraitComptable,
+                      versCsv: versCsv,
+                      estimerDistance: estimerDistance,
                       preparerExport: preparerExport,
                       appliquerImport: appliquerImport,
                       nomFichierExport: nomFichierExport,
@@ -2722,6 +3082,7 @@
                         reglages: reglages, interventions: interventions,
                         factures: factures, mode: depot && depot.mode }; } };
 
+  chargerCacheGeo();
   brancherSections();
 
   /*

@@ -355,7 +355,78 @@
     };
   }
 
+  /* ------------------------------------------------------------
+     Distance
+     ------------------------------------------------------------ */
+
+  /*
+    Meme formule que BillyPro : vol d'oiseau (haversine) puis facteur
+    de sinuosite de 1,3. Sur le reseau routier suisse, la route fait
+    environ 30 % de plus que la ligne droite.
+
+    C'est une ESTIMATION. Elle sert a pre-remplir un champ, jamais a
+    imposer un montant : le kilometrage reste modifiable a la main.
+  */
+  var RAYON_TERRE_KM = 6371;
+  var FACTEUR_ROUTE = 1.3;
+
+  function volDoiseauKm(a, b) {
+    var rad = function (d) { return (d * Math.PI) / 180; };
+    var dLat = rad(b.lat - a.lat);
+    var dLng = rad(b.lng - a.lng);
+    var h = Math.pow(Math.sin(dLat / 2), 2)
+      + Math.pow(Math.sin(dLng / 2), 2)
+        * Math.cos(rad(a.lat)) * Math.cos(rad(b.lat));
+    return 2 * RAYON_TERRE_KM * Math.asin(Math.sqrt(h));
+  }
+
+  /** `null` si l'un des deux points est inconnu : on ne devine pas. */
+  function distanceRouteKm(a, b) {
+    if (!a || !b || typeof a.lat !== 'number' || typeof b.lat !== 'number') {
+      return null;
+    }
+    return Math.round(volDoiseauKm(a, b) * FACTEUR_ROUTE * 10) / 10;
+  }
+
+  /**
+   * Interroge le geocodeur suisse officiel (gratuit, sans cle).
+   *
+   * `fetchFn` est injecte pour que la fonction soit testable sans
+   * reseau. `cache` evite de redemander la meme adresse — et permet de
+   * retrouver une position deja connue meme hors ligne.
+   */
+  function geocoder(texte, fetchFn, cache) {
+    var cle = String(texte || '').trim().toLowerCase();
+    if (!cle) return Promise.resolve(null);
+    if (cache && cache[cle] !== undefined) return Promise.resolve(cache[cle]);
+
+    var url = 'https://api3.geo.admin.ch/rest/services/api/SearchServer?'
+      + 'searchText=' + encodeURIComponent(texte)
+      + '&type=locations&sr=4326';
+
+    return fetchFn(url)
+      .then(function (r) {
+        if (!r || !r.ok) throw new Error('geocodage indisponible');
+        return r.json();
+      })
+      .then(function (data) {
+        var lieu = B.choisirLieuSuisse(
+          ((data && data.results) || []).map(function (x) { return x.attrs; })
+            .filter(Boolean));
+        if (cache) cache[cle] = lieu;
+        return lieu;
+      })
+      .catch(function () {
+        // Reseau coupe, service indisponible, refus du navigateur :
+        // on renvoie null. La saisie manuelle reste la reference.
+        return null;
+      });
+  }
+
   global.BillySuisse = {
+    volDoiseauKm: volDoiseauKm,
+    distanceRouteKm: distanceRouteKm,
+    geocoder: geocoder,
     preparerDevis: preparerDevis,
     reglagesParDefaut: reglagesParDefaut,
     chiffrer: chiffrer,
