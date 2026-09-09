@@ -2930,7 +2930,9 @@
         + ' <span class="pastille">' + (d.facturee ? 'Facturée' : 'À facturer')
         + '</span><div class="muted">' + quand.toLocaleDateString('fr-CH')
         + ' · ' + ((it.npa || '') + ' ' + (it.localite || '')).trim() + '</div>'
-        + (d.facturee ? ''
+        + (d.facturee
+          ? '<button class="secondaire" data-voir-facture="' + it.id + '">'
+            + 'Voir la facture</button>'
           : '<button data-facturer="' + it.id + '">Facturer</button>'
             + '<div class="rangee">'
             + '<button class="secondaire" data-modifier-it="' + it.id + '">'
@@ -2939,6 +2941,20 @@
             + 'Supprimer</button></div>')
         + '</div>';
     }).join('');
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-voir-facture]'), function (b) {
+        b.addEventListener('click', function () {
+          var f = factures.find(function (x) {
+            return x.rdv_id === b.dataset.voirFacture;
+          });
+          if (f) { ouvrirFacture(f); return; }
+          // Ecart entre le statut et les donnees reelles : le dire
+          // clairement plutot que de laisser un bouton qui ne fait
+          // rien.
+          alert('Marquée facturée, mais aucune facture correspondante '
+            + 'n\u2019a été retrouvée. Vérifiez l\u2019onglet Factures.');
+        });
+      });
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-facturer]'), function (b) {
         b.addEventListener('click', function () { facturer(b.dataset.facturer); });
@@ -3084,16 +3100,58 @@
 
   /* ---------- Facturation ---------- */
 
+  /*
+    DEFAUT VECU, serieux : une facture generee avec succes est restee
+    INTROUVABLE — la carte affichait « Facturée » mais plus aucun
+    bouton, et rien dans l'onglet Factures.
+
+    DEUX CAUSES, CORRIGEES ENSEMBLE :
+
+    1. La facture n'etait ajoutee a la liste visible (`factures`) qu'a
+       la TOUTE DERNIERE etape de la chaine — apres avoir marque
+       l'intervention et re-enregistre. Si CETTE derniere etape
+       echouait (conflit de synchronisation, reseau), la facture avait
+       pourtant deja ete sauvegardee avec succes juste avant, mais
+       restait invisible dans l'application : ni bouton pour la
+       retrouver, ni trace dans Factures.
+
+       Desormais, la facture est ajoutee et affichee des l'instant ou
+       elle est sauvegardee — avant meme de toucher a l'intervention.
+       Une panne plus loin dans la chaine ne peut plus la rendre
+       invisible.
+
+    2. Rien n'empechait d'appuyer deux fois sur « Facturer » avant la
+       fin du premier appel — exactement le defaut deja rencontre sur
+       le bouton d'enregistrement d'un rendez-vous. Un verrou identique
+       est pose ici.
+
+    3. Une fois « Facturée », la carte n'offrait plus AUCUN moyen de
+       revoir cette facture depuis cet ecran — il fallait la retrouver
+       a la main dans l'onglet Factures. Un lien direct est ajoute.
+  */
+  var facturationEnCours = {};
+
   function facturer(id) {
+    if (facturationEnCours[id]) return;
     var it = interventions.find(function (x) { return x.id === id; });
     if (!it) return;
     var donnees = it.donnees || {};
+    var bouton = document.querySelector('[data-facturer="' + id + '"]');
+
+    facturationEnCours[id] = true;
+    if (bouton) bouton.disabled = true;
+
+    function libererVerrou() {
+      facturationEnCours[id] = false;
+      var b = document.querySelector('[data-facturer="' + id + '"]');
+      if (b) b.disabled = false;
+    }
 
     // Le numero vient du depot : sur Supabase, c'est PostgreSQL qui
     // tranche, et deux appareils ne peuvent pas obtenir le meme.
     depot.prochainNumeroFacture('F').then(function (numero) {
       var f = window.BillySuisse.preparerFacture(donnees, reglages, numero);
-      if (f.erreur) { alert(f.erreur); return; }
+      if (f.erreur) { alert(f.erreur); libererVerrou(); return; }
 
       var ligne = {
         id: window.Billy.uuidv7(), rdv_id: it.id, numero: f.numero,
@@ -3103,19 +3161,34 @@
         donnees: { lignes: f.lignes, totaux: f.totaux, client: donnees },
       };
       return depot.enregistrerFacture(ligne).then(function () {
-        donnees.facturee = true;
-        return depot.enregistrerIntervention(it);
-      }).then(function () {
+        // La facture EXISTE desormais : visible et retrouvable tout
+        // de suite, avant la moindre autre etape qui pourrait echouer.
         factures.unshift(ligne);
         afficherFactures();
+
+        donnees.facturee = true;
+        return depot.enregistrerIntervention(it)
+          .catch(function (e) {
+            // La facture, elle, est sauve : seul le marquage de
+            // l'intervention a echoue. On le signale sans revenir en
+            // arriere — annuler le marquage ferait courir le risque
+            // d'une seconde facture, double emploi bien pire qu'un
+            // statut a corriger a la main.
+            alert('La facture ' + f.numero + ' a bien été créée, mais son '
+              + 'statut n\u2019a pas pu être enregistré : ' + (e.message || e)
+              + '. Retrouvez-la dans l\u2019onglet Factures.');
+          });
+      }).then(function () {
         // Sans ce rafraichissement, le bouton « Facturer » restait
         // affiche et cliquable : deux factures pour un seul travail,
         // avec deux numeros consommes.
         afficherInterventions();
         ouvrirFacture(ligne);
+        libererVerrou();
       });
     }).catch(function (e) {
       alert('Facturation impossible : ' + (e.message || e));
+      libererVerrou();
     });
   }
 
