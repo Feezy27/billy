@@ -126,7 +126,7 @@
   .logo-accueil{width:120px;height:120px;object-fit:contain}
   /* Sur la facture, le logo reste discret : c'est un document, pas
      une affiche. */
-  .logo-facture{width:64px;height:64px;object-fit:contain;float:right;
+  .logo-facture{width:96px;height:96px;object-fit:contain;float:right;
     margin-left:14px}
   .regle{border:1px solid var(--ligne);border-radius:12px;margin-bottom:8px;
     overflow:hidden;background:#14161a}
@@ -187,7 +187,7 @@
     .muted,#facture-entete .refs,#facture-entete .mentions{color:#444}
     .ligne-facture{border-bottom:1px solid #ddd}
     .total.gros{border-top:2px solid #000}
-    .logo-facture{width:56px;height:56px}
+    .logo-facture{width:84px;height:84px}
     #qr-affichage{page-break-inside:avoid;margin-top:20px}
     #qr-affichage svg{background:#fff}
     .signature-vue{max-width:220px}
@@ -371,7 +371,10 @@
     <div id="etat-signature"></div>
   </div>
 
-  <button id="btn-enregistrer">Enregistrer l'intervention</button>
+  <label for="cli-email">E-mail du client</label>
+  <input id="cli-email" type="email" inputmode="email">
+
+  <button id="btn-enregistrer">Générer la facture</button>
   <button id="btn-devis" class="secondaire">Établir un devis</button>
   <p class="muted">Un devis n'est pas une intervention : rien n'est
     considéré comme fait, et rien n'est facturé. Il devient une
@@ -1976,6 +1979,14 @@
     if (c.adresse) $('rdv-adresse').value = c.adresse;
     if (c.npa) $('rdv-npa').value = c.npa;
     if (c.localite) $('rdv-localite').value = c.localite;
+    /*
+      DEFAUT VECU : choisir un client deja connu remplissait l'adresse
+      SANS declencher le calcul de distance — lui n'ecoute que
+      `change`, jamais une affectation faite par le code. Il fallait
+      effacer puis retaper l'adresse pour que les frais de deplacement
+      apparaissent enfin.
+    */
+    $('rdv-localite').dispatchEvent(new Event('change', { bubbles: true }));
   });
 
   brancherSuggestionClient('cli-nom', 'sugg-cli-nom', function (c) {
@@ -2056,25 +2067,37 @@
     }
 
     var G = window.BillySuisse.geocoder;
-    Promise.all([
-      G(depart, appelReseau, cacheGeo),
-      G(arrivee, appelReseau, cacheGeo),
-    ]).then(function (p) {
-      rangerCacheGeo();
-      var km = window.BillySuisse.distanceRouteKm(p[0], p[1]);
-      if (km == null) {
-        // Silence volontaire : un message d'erreur a chaque frappe
-        // serait plus penible qu'utile.
-        message('etat-distance', '');
-        return;
-      }
-      // Une derniere fois : l'utilisateur a pu saisir pendant l'appel.
-      if (String($('dist-km').value).trim() !== '') return;
-      $('dist-km').value = km;
-      message('etat-distance', 'Estimation : ' + km + ' km (à vol d\u2019oiseau '
-        + '+ 30 %). Modifiable.', 'ok');
-      rafraichirChiffrage();
-    }).catch(function () { message('etat-distance', ''); });
+    try {
+      Promise.all([
+        G(depart, appelReseau, cacheGeo),
+        G(arrivee, appelReseau, cacheGeo),
+      ]).then(function (p) {
+        rangerCacheGeo();
+        var km = window.BillySuisse.distanceRouteKm(p[0], p[1]);
+        if (km == null) {
+          // Silence volontaire : un message d'erreur a chaque frappe
+          // serait plus penible qu'utile.
+          message('etat-distance', '');
+          return;
+        }
+        // Une derniere fois : l'utilisateur a pu saisir pendant l'appel.
+        if (String($('dist-km').value).trim() !== '') return;
+        $('dist-km').value = km;
+        message('etat-distance', 'Estimation : ' + km + ' km (à vol d\u2019oiseau '
+          + '+ 30 %). Modifiable.', 'ok');
+        rafraichirChiffrage();
+      }).catch(function () { message('etat-distance', ''); });
+    } catch (e) {
+      /*
+        DEFAUT EVITE ICI : un appel reseau qui echoue de facon
+        SYNCHRONE — CORS, contenu mixte, page ouverte depuis le disque —
+        aurait interrompu la fonction appelante avant qu'elle atteigne
+        `montrer('nouvelle')`. L'ecran serait reste invisible, sans le
+        moindre message, pour une simple estimation de distance qui a
+        echoue.
+      */
+      message('etat-distance', '');
+    }
   }
 
   /*
@@ -2741,6 +2764,7 @@
     $('cli-npa').value = it.npa || '';
     $('cli-localite').value = it.localite || '';
     $('cli-adresse').value = it.adresse || '';
+    $('cli-email').value = d.email || '';
     ['dist-km', 'duree-min', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     // Reprise d'une intervention DEJA saisie : on recharge ce qui a
@@ -2785,6 +2809,17 @@
     afficherNids();
     afficherCouts();
     rafraichirChiffrage();
+    /*
+      DEFAUT VECU : les frais de deplacement annonces au telephone
+      disparaissaient au moment de facturer.
+
+      CAUSE : `estimerDistance()` ne se declenche que sur `blur` — le
+      champ qui perd le focus apres une saisie humaine. Remplir NPA,
+      localite et adresse par code, comme juste au-dessus, ne
+      declenche jamais cet evenement : la distance restait vide, et
+      les frais de deplacement avec elle, silencieusement.
+    */
+    estimerDistance();
     montrer('nouvelle');
   }
 
@@ -2926,8 +2961,8 @@
 
   $('btn-nouvelle').addEventListener('click', function () {
     rdvEnCours = null;
-    ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'dist-km',
-     'duree-min', 'convenu-total', 'convenu-motif']
+    ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'cli-email',
+     'dist-km', 'duree-min', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     nidsSaisie = [nidVide()];
     coutsSaisie = [];
@@ -2952,6 +2987,7 @@
       npa: $('cli-npa').value.trim(),
       localite: $('cli-localite').value.trim(),
       adresse: $('cli-adresse').value.trim(),
+      email: $('cli-email').value.trim(),
       typeClient: $('cli-type').value,
       // Copie : sans elle, modifier le formulaire changerait aussi une
       // intervention deja enregistree.
@@ -3284,7 +3320,8 @@
 
     h += '<div class="dest">' + (c.clientNom || '') + '<br>'
       + (c.adresse || '') + '<br>'
-      + [c.npa, c.localite].filter(Boolean).join(' ') + '</div>';
+      + [c.npa, c.localite].filter(Boolean).join(' ')
+      + (c.email ? '<br>' + c.email : '') + '</div>';
 
     h += '<div class="refs"><strong style="color:var(--ivoire);'
       + 'font-size:16px">' + opts.titre + '</strong><br>'
