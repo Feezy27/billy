@@ -272,6 +272,39 @@
     }
   }
 
+  /**
+   * Reference creanciere SCOR (norme ISO 11649), pour un IBAN
+   * ordinaire — un QR-IBAN exige au contraire une reference QRR.
+   *
+   * Forme : « RF » + deux chiffres de controle + jusqu'a 21 caracteres.
+   * Les chiffres de controle se calculent en deplacant « RF00 » a la
+   * fin, en remplacant chaque lettre par sa position + 9 (A=10, Z=35),
+   * puis 98 moins le reste de la division par 97.
+   *
+   * On y met le numero de facture : il revient avec le paiement, ce qui
+   * permet de rapprocher un versement d'une facture sans chercher.
+   */
+  function referenceCreanciere(numero) {
+    // Seuls chiffres et lettres sont admis : « F0007-2026 » devient
+    // « F00072026 ».
+    var base = String(numero).toUpperCase().replace(/[^0-9A-Z]/g, '')
+      .slice(0, 21);
+    if (!base) base = '1';
+
+    var chiffres = (base + 'RF00').replace(/[A-Z]/g, function (c) {
+      return String(c.charCodeAt(0) - 55);
+    });
+
+    // Le nombre depasse ce qu'un entier peut contenir : on divise par
+    // tranches, comme une division posee a la main.
+    var reste = 0;
+    for (var i = 0; i < chiffres.length; i++) {
+      reste = (reste * 10 + Number(chiffres[i])) % 97;
+    }
+    var controle = String(98 - reste).padStart(2, '0');
+    return 'RF' + controle + base;
+  }
+
   /* ------------------------------------------------------------
      Facture
      ------------------------------------------------------------ */
@@ -290,20 +323,46 @@
       return { erreur: 'Reglages incomplets : ' + manquants.join(', ') };
     }
 
-    // Reference QR : construite par la fonction prevue pour cela dans
-    // BillyPro — annee + sequence, lisible et triable dans l'e-banking
-    // du client. Le numero « F0007-2026 » donne annee 2026, sequence 7.
+    /*
+      DEUX TYPES D'IBAN, DEUX TYPES DE REFERENCE — et on ne melange pas.
+
+      Verifie avec la bibliotheque suisse elle-meme :
+
+        QR-IBAN      + reference QRR  -> accepte
+        QR-IBAN      + aucune         -> REFUSE
+        IBAN normal  + reference QRR  -> REFUSE
+        IBAN normal  + reference SCOR -> accepte
+        IBAN normal  + aucune         -> accepte
+
+      Le code fabriquait TOUJOURS une reference QRR. Avec un IBAN
+      ordinaire — le cas de Philippe — la QR-facture ne se generait
+      pas du tout : « QR-Reference requires the use of a QR-IBAN ».
+
+      Un IBAN se reconnait a son numero d'institution (positions 5 a 9) :
+      de 30000 a 31999, c'est un QR-IBAN. `isQrIban` s'en charge.
+
+      Pour un IBAN ordinaire on emet une reference SCOR plutot que rien :
+      elle apparait sur le bulletin et revient avec le paiement, ce qui
+      permet de rapprocher un versement d'une facture. Sans reference,
+      il faudrait identifier chaque paiement a la main.
+    */
     var m = String(numero).match(/^([A-Z]*)(\d+)-(\d{4})$/);
     if (!m) {
       return { erreur: 'Numéro de facture inattendu : ' + numero };
     }
-    var reference = B.invoiceQrReference({
-      year: Number(m[3]), seq: Number(m[2]),
-    });
+
+    var iban = String((reglages.entreprise || {}).iban || '');
+    var estQrIban = B.isQrIban(iban);
+    var reference = estQrIban
+      // Reference QR : annee + sequence, lisible et triable dans
+      // l'e-banking du client.
+      ? B.invoiceQrReference({ year: Number(m[3]), seq: Number(m[2]) })
+      : referenceCreanciere(numero);
 
     return {
       numero: numero,
       reference: reference,
+      typeReference: estQrIban ? 'QRR' : 'SCOR',
       lignes: chiffrage.lignes,
       totaux: chiffrage.totaux,
       totalRappen: chiffrage.totaux.total,
@@ -439,6 +498,91 @@
    * reseau. `cache` evite de redemander la meme adresse — et permet de
    * retrouver une position deja connue meme hors ligne.
    */
+  /*
+    Recherche de localites suisses, pour proposer NPA et ville pendant
+    la saisie.
+
+    CE QUE LE SERVICE RENVOIE REELLEMENT — verifie sur reponses reelles
+    du 05.09.2026, pas suppose :
+
+      searchText=1422&origins=zipcode
+        -> label « <b>1422 - Grandson</b> », origin « zipcode ».
+           Noter le TIRET : le format n'est pas « 1422 Grandson ».
+
+      searchText=Grand&origins=address
+        -> label « Grand-Rue # <b>1607 Palézieux-Village</b> ».
+           La recherche a porte sur le nom de RUE, pas sur la ville.
+
+      searchText=Grandson&origins=zipcode
+        -> liste VIDE. L'index des NPA se cherche par NUMERO seulement.
+
+    D'ou deux strategies distinctes :
+      — que des chiffres : recherche « zipcode », directe et fiable ;
+      — des lettres : recherche « address », puis on ne GARDE que les
+        resultats dont la LOCALITE commence par le texte tape. C'est ce
+        filtre qui ecarte « Grand-Rue à Palézieux » tout en conservant
+        une adresse située à Grandson.
+  */
+  function motCle(t) {
+    return String(t || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  }
+
+  /** Extrait « NPA » et « localite » du libelle d'un resultat. */
+  function lireNpaLocalite(attrs) {
+    var gras = String((attrs && attrs.label) || '')
+      .match(/<b>([^]*?)<\/b>/);
+    if (!gras) return null;
+    var texte = gras[1].replace(/<[^>]*>/g, '').trim();
+    // « 1422 - Grandson » (zipcode) et « 1607 Palézieux-Village »
+    // (address) : le tiret est optionnel.
+    var m = texte.match(/^(\d{4})\s*-?\s*(.+)$/);
+    if (!m) return null;
+    return { npa: m[1], localite: m[2].trim() };
+  }
+
+  function chercherLocalites(texte, fetchFn, cache) {
+    var q = String(texte || '').trim();
+    if (q.length < 2) return Promise.resolve([]);
+    var cle = 'loc:' + motCle(q);
+    if (cache && cache[cle] !== undefined) return Promise.resolve(cache[cle]);
+
+    var chiffresSeuls = /^\d+$/.test(q);
+    var url = 'https://api3.geo.admin.ch/rest/services/api/SearchServer?'
+      + 'searchText=' + encodeURIComponent(q)
+      + '&type=locations&sr=4326&origins='
+      + (chiffresSeuls ? 'zipcode' : 'address');
+
+    return fetchFn(url)
+      .then(function (r) {
+        if (!r || !r.ok) throw new Error('recherche indisponible');
+        return r.json();
+      })
+      .then(function (data) {
+        var vus = {};
+        var trouves = [];
+        ((data && data.results) || []).forEach(function (x) {
+          var l = lireNpaLocalite(x && x.attrs);
+          if (!l) return;
+          // Recherche par lettres : le service a pu repondre sur un nom
+          // de RUE. On ne garde que si la LOCALITE correspond vraiment.
+          if (!chiffresSeuls
+              && motCle(l.localite).indexOf(motCle(q)) !== 0) return;
+          var k = l.npa + '|' + motCle(l.localite);
+          if (vus[k]) return;
+          vus[k] = true;
+          trouves.push(l);
+        });
+        if (cache) cache[cle] = trouves;
+        return trouves;
+      })
+      .catch(function () {
+        // Hors ligne ou service indisponible : la saisie manuelle
+        // reste la reference, on ne bloque rien.
+        return [];
+      });
+  }
+
   function geocoder(texte, fetchFn, cache) {
     var cle = String(texte || '').trim().toLowerCase();
     if (!cle) return Promise.resolve(null);
@@ -472,6 +616,9 @@
     volDoiseauKm: volDoiseauKm,
     distanceRouteKm: distanceRouteKm,
     geocoder: geocoder,
+    referenceCreanciere: referenceCreanciere,
+    chercherLocalites: chercherLocalites,
+    lireNpaLocalite: lireNpaLocalite,
     preparerDevis: preparerDevis,
     reglagesParDefaut: reglagesParDefaut,
     chiffrer: chiffrer,

@@ -65,7 +65,20 @@
     donnaient l'impression de se chevaucher.
   */
   .rangee{display:flex;gap:10px;margin-bottom:12px}
-  .rangee>*{flex:1}
+  /*
+    DEFAUT VECU, confirme sur capture d'ecran : la colonne « Heure »
+    debordait a droite de la carte, chevauchant visuellement la
+    colonne « Date ».
+
+    CAUSE : un enfant flexible a, par defaut, un `min-width` de
+    « auto », qui l'empeche de retrecir EN DESSOUS de la taille
+    naturelle de son contenu. Sur iPhone, un <select> reserve une
+    place fixe pour l'icone de fleches qu'iOS dessine tout seul ; deux
+    <select> cote a cote (heures, minutes) refusaient donc de tenir
+    dans la moitie de largeur qui leur etait allouee, et debordaient.
+    `min-width:0` autorise enfin ces colonnes a retrecir normalement.
+  */
+  .rangee>*{flex:1;min-width:0}
   .total{display:flex;justify-content:space-between;padding:6px 0}
   .total.gros{font-size:20px;font-weight:800;border-top:1px solid var(--ligne);
     margin-top:8px;padding-top:12px}
@@ -144,9 +157,9 @@
     border-color:var(--ambre);font-weight:800;
     box-shadow:0 0 0 3px rgba(242,183,5,.22)}
   .groupe-choix .rappel{color:var(--brume);font-size:12px;margin-top:9px}
-  .heure-champ{display:flex;align-items:center;gap:6px}
-  .heure-champ select{flex:1;text-align:center}
-  .heure-champ span{color:var(--brume);font-weight:700}
+  .heure-champ{display:flex;align-items:center;gap:6px;min-width:0}
+  .heure-champ select{flex:1;min-width:0;text-align:center;padding:11px 4px}
+  .heure-champ span{color:var(--brume);font-weight:700;flex:0 0 auto}
   .ecran{display:none}
   .ecran.visible{display:block}
   .ligne-facture{display:flex;justify-content:space-between;
@@ -250,6 +263,8 @@
         <input id="rdv-localite" autocomplete="off"></div>
     </div>
     <div id="sugg-rdv-localite" class="suggestions"></div>
+    <div id="etat-distance-rdv"></div>
+    <button id="btn-itineraire" class="secondaire">Voir le trajet dans Maps</button>
     <div class="groupe-choix">
       <div class="titre">Insecte</div>
       <div id="rdv-insectes"></div>
@@ -1884,27 +1899,73 @@
     });
   }
 
+  /** Cache des recherches de localites, partage entre les champs. */
+  var cacheLocalites = {};
+
   function brancherSuggestionLocalite(champNpa, champLoc, zoneId) {
-    function chercher() {
-      var qn = $(champNpa).value.trim();
-      var ql = sansAccent($(champLoc).value.trim());
-      if (qn.length < 2 && ql.length < 2) { $(zoneId).innerHTML = ''; return; }
-      var trouves = localitesConnues().filter(function (l) {
-        var okNpa = qn.length >= 2 && l.npa.indexOf(qn) === 0;
-        var okLoc = ql.length >= 2 && sansAccent(l.localite).indexOf(ql) >= 0;
-        return okNpa || okLoc;
-      }).filter(function (l) {
+    var minuterie = null;
+
+    function afficher(trouves, qn, ql) {
+      var propres = trouves.filter(function (l) {
         // Deja exactement saisi : plus rien a proposer.
         return !(l.npa === qn && sansAccent(l.localite) === ql);
       });
-      proposer(zoneId, trouves, function (l) {
+      proposer(zoneId, propres, function (l) {
         return (l.npa ? l.npa + ' ' : '') + l.localite;
       }, function (l) {
         $(champNpa).value = l.npa;
         $(champLoc).value = l.localite;
+        // `change` declenche le recalcul de la distance et du prix.
         $(champLoc).dispatchEvent(new Event('change', { bubbles: true }));
       });
     }
+
+    function chercher() {
+      var qn = $(champNpa).value.trim();
+      var ql = sansAccent($(champLoc).value.trim());
+      if (qn.length < 2 && ql.length < 2) { $(zoneId).innerHTML = ''; return; }
+
+      // 1. L'historique repond tout de suite, meme sans reseau.
+      var connues = localitesConnues().filter(function (l) {
+        var okNpa = qn.length >= 2 && l.npa.indexOf(qn) === 0;
+        var okLoc = ql.length >= 2 && sansAccent(l.localite).indexOf(ql) >= 0;
+        return okNpa || okLoc;
+      });
+      afficher(connues, qn, ql);
+
+      /*
+        2. Puis le service officiel complete — il connait toute la
+        Suisse, l'historique seulement ce que Philippe a deja saisi.
+
+        Attente avant l'appel : sans elle, taper « Gran » lancerait
+        quatre recherches reseau successives dont trois pour rien.
+      */
+      if (minuterie) window.clearTimeout(minuterie);
+      minuterie = window.setTimeout(function () {
+        var texte = ql.length >= 2 ? $(champLoc).value.trim() : qn;
+        window.BillySuisse.chercherLocalites(
+          texte, window.fetch && window.fetch.bind(window), cacheLocalites)
+          .then(function (officielles) {
+            if (!officielles.length) return;
+            // Le champ a pu changer pendant l'attente : ne rien
+            // afficher qui ne corresponde plus a ce qui est tape.
+            var qn2 = $(champNpa).value.trim();
+            var ql2 = sansAccent($(champLoc).value.trim());
+            if (qn2 !== qn || ql2 !== ql) return;
+
+            var vus = {};
+            var toutes = connues.concat(officielles).filter(function (l) {
+              var k = l.npa + '|' + sansAccent(l.localite);
+              if (vus[k]) return false;
+              vus[k] = true;
+              return true;
+            });
+            afficher(toutes, qn, ql);
+          })
+          .catch(function () { /* l'historique reste affiche */ });
+      }, 300);
+    }
+
     $(champNpa).addEventListener('input', chercher);
     $(champLoc).addEventListener('input', chercher);
   }
@@ -2353,6 +2414,16 @@
   /** Distance calculee depuis l'adresse saisie, ou null. */
   var rdvDistanceKm = null;
 
+  /*
+    Cache des adresses deja geocodees.
+
+    Sans lui, chaque frappe dans NPA, localite ou adresse relance deux
+    appels reseau — le depart ET l'arrivee — alors que le depart ne
+    change jamais. Sur une 4G faible, cela retarde l'affichage du prix
+    au moment ou Philippe a le client au telephone.
+  */
+  var cacheGeocodage = {};
+
   function estimerDistanceRdv() {
     var npa = $('rdv-npa').value.trim();
     var localite = $('rdv-localite').value.trim();
@@ -2362,17 +2433,35 @@
     var e = reglages.entreprise || {};
     var depart = [e.adresse, e.numero, e.npa, e.localite]
       .filter(Boolean).join(' ');
-    if (!depart) { rdvDistanceKm = null; estimerPrixRdv(); return; }
+    if (!depart) {
+      // Sans adresse d'entreprise, aucune distance n'est calculable :
+      // le dire vaut mieux que de laisser chercher pourquoi les frais
+      // n'apparaissent jamais.
+      rdvDistanceKm = null;
+      message('etat-distance-rdv', 'Renseignez l\u2019adresse de votre entreprise '
+        + 'dans les Réglages pour calculer les frais de déplacement.', 'info');
+      estimerPrixRdv();
+      return;
+    }
 
     var arrivee = [$('rdv-adresse').value.trim(), npa, localite]
       .filter(Boolean).join(' ');
-    window.BillySuisse.geocoder(arrivee, window.fetch && window.fetch.bind(window))
+    message('etat-distance-rdv', 'Calcul de la distance…', 'info');
+
+    var f = window.fetch && window.fetch.bind(window);
+    window.BillySuisse.geocoder(arrivee, f, cacheGeocodage)
       .then(function (point) {
-        return window.BillySuisse.geocoder(
-          depart, window.fetch && window.fetch.bind(window))
+        return window.BillySuisse.geocoder(depart, f, cacheGeocodage)
           .then(function (p0) {
             rdvDistanceKm = (point && p0)
               ? window.BillySuisse.distanceRouteKm(p0, point) : null;
+            if (rdvDistanceKm == null) {
+              message('etat-distance-rdv', 'Adresse non reconnue : frais de '
+                + 'déplacement à saisir sur place.', 'info');
+            } else {
+              message('etat-distance-rdv', 'Environ '
+                + Math.round(rdvDistanceKm) + ' km depuis votre adresse.', 'ok');
+            }
             estimerPrixRdv();
           });
       })
@@ -2380,9 +2469,39 @@
         // Sans reseau ou adresse inconnue : on ne chiffre pas le
         // deplacement plutot que d'annoncer un montant faux.
         rdvDistanceKm = null;
+        message('etat-distance-rdv', 'Distance non calculée (hors ligne).', 'info');
         estimerPrixRdv();
       });
   }
+
+  /*
+    Ouvre l'itineraire dans Google Maps.
+
+    On passe par une URL de recherche d'itineraire plutot que par des
+    coordonnees : Maps sait mieux que nous interpreter une adresse
+    suisse, et Philippe voit le trajet reel — celui qu'il va conduire —
+    pas la ligne droite que nous utilisons pour estimer.
+  */
+  function ouvrirItineraire() {
+    var e = reglages.entreprise || {};
+    var depart = [e.adresse, e.numero, e.npa, e.localite]
+      .filter(Boolean).join(' ');
+    var arrivee = [$('rdv-adresse').value.trim(),
+      $('rdv-npa').value.trim(), $('rdv-localite').value.trim()]
+      .filter(Boolean).join(' ');
+
+    if (!arrivee) {
+      message('etat-distance-rdv', 'Renseignez d\u2019abord l\u2019adresse du client.',
+        'info');
+      return;
+    }
+    var url = 'https://www.google.com/maps/dir/?api=1'
+      + (depart ? '&origin=' + encodeURIComponent(depart + ', Suisse') : '')
+      + '&destination=' + encodeURIComponent(arrivee + ', Suisse');
+    window.open(url, '_blank');
+  }
+
+  $('btn-itineraire').addEventListener('click', ouvrirItineraire);
 
   ['rdv-npa', 'rdv-localite', 'rdv-adresse'].forEach(function (id) {
     $(id).addEventListener('change', estimerDistanceRdv);
