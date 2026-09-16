@@ -305,6 +305,166 @@
     return 'RF' + controle + base;
   }
 
+  /**
+   * Construit un vrai fichier PDF de la facture — pas une capture
+   * d'ecran, un document texte genere directement, page par page,
+   * avec la partie paiement QR-facture integree par la bibliotheque
+   * suisse elle-meme.
+   *
+   * Necessite PDFKit et le module PDF de swissqrbill, charges a la
+   * demande uniquement (ce sont de gros fichiers, inutiles tant que
+   * personne n'appuie sur « Envoyer »).
+   *
+   * `logoBytes` est facultatif : sans logo charge, le document se
+   * construit quand meme, sans lui — comme sur l'ecran, une image
+   * absente ne doit jamais empecher le reste de fonctionner.
+   */
+  function construirePdfFacture(f, reglages, PDFDocumentCtor, SwissQRBillPDF, logoBytes) {
+    return new Promise(function (resolve, reject) {
+      try {
+        var e = reglages.entreprise || {};
+        var d = f.donnees || {};
+        var c = d.client || {};
+        var emise = new Date(f.emise_le || Date.now());
+        var delai = (reglages.tva && reglages.tva.delaiJours) || 30;
+        var echeance = new Date(emise.getTime() + delai * 86400000);
+        var jour = function (x) { return x.toLocaleDateString('fr-CH'); };
+
+        var doc = new PDFDocumentCtor({ size: 'A4', margin: 50 });
+        var chunks = [];
+        doc.on('data', function (ch) { chunks.push(ch); });
+        doc.on('end', function () {
+          resolve(new Blob(chunks, { type: 'application/pdf' }));
+        });
+
+        var largeurPage = doc.page.width - doc.page.margins.left
+          - doc.page.margins.right;
+        var y = doc.page.margins.top;
+
+        // Logo centre en haut, dans le meme ordre que la version ecran.
+        if (logoBytes) {
+          var cote = 60;
+          doc.image(logoBytes, doc.page.margins.left + (largeurPage - cote) / 2,
+            y, { width: cote, height: cote });
+          y += cote + 12;
+        }
+
+        // Deux colonnes : client a gauche, entreprise a droite — meme
+        // disposition que le document affiche a l'ecran.
+        var largeurColonne = largeurPage / 2 - 10;
+        var xDroite = doc.page.margins.left + largeurPage / 2 + 10;
+        doc.fontSize(10).fillColor('#000');
+
+        doc.text([c.clientNom, c.adresse,
+          [c.npa, c.localite].filter(Boolean).join(' '), c.email]
+          .filter(Boolean).join('\n'),
+          doc.page.margins.left, y, { width: largeurColonne });
+
+        doc.text([e.nom, [e.adresse, e.numero].filter(Boolean).join(' '),
+          [e.npa, e.localite].filter(Boolean).join(' '), e.telephone, e.email]
+          .filter(Boolean).join('\n'),
+          xDroite, y, { width: largeurColonne, align: 'right' });
+
+        doc.y = y + 70;
+        doc.x = doc.page.margins.left;
+
+        // Numero, dates : mis en avant, comme sur l'ecran.
+        doc.fontSize(14).text(f.numero, { continued: false });
+        doc.fontSize(10).fillColor('#444')
+          .text('Date : ' + jour(emise))
+          .text('Payable jusqu\u2019au ' + jour(echeance));
+
+        var mentions = [];
+        if (reglages.tva && reglages.tva.assujetti && reglages.tva.numero) {
+          mentions.push('N° TVA : ' + reglages.tva.numero);
+        }
+        if (reglages.tva && reglages.tva.assujetti) {
+          mentions.push('Montants en CHF, TVA ' + reglages.tva.taux
+            + ' % comprise.');
+        } else {
+          mentions.push('Non assujetti à la TVA selon l\u2019art. 10 al. 2 LTVA');
+        }
+        if (c.signature) {
+          mentions.push('Intervention confirmée par la signature du client.');
+        }
+        if (d.annulee) {
+          mentions.push('FACTURE ANNULÉE — ' + (d.motifAnnulation || ''));
+        }
+        doc.moveDown(0.5).text(mentions.join('\n'));
+
+        // Lignes de la facture.
+        doc.moveDown(1).fillColor('#000').fontSize(11);
+        (d.lignes || []).forEach(function (l) {
+          var ligneY = doc.y;
+          doc.text(l.label, doc.page.margins.left, ligneY,
+            { width: largeurColonne * 1.4 });
+          doc.text(B.formatChf(l.amount) + ' CHF',
+            doc.page.margins.left, ligneY,
+            { width: largeurPage, align: 'right' });
+          doc.moveDown(0.3);
+        });
+
+        doc.moveDown(0.5);
+        var yTotal = doc.y;
+        doc.fontSize(13).text('Total', doc.page.margins.left, yTotal);
+        doc.text(B.formatChf(f.total_rappen) + ' CHF',
+          doc.page.margins.left, yTotal, { width: largeurPage, align: 'right' });
+
+        if (d.totaux && d.totaux.vat) {
+          doc.moveDown(0.3).fontSize(10).fillColor('#444');
+          var yVat = doc.y;
+          doc.text('dont TVA', doc.page.margins.left, yVat);
+          doc.text(B.formatChf(d.totaux.vat) + ' CHF',
+            doc.page.margins.left, yVat, { width: largeurPage, align: 'right' });
+        }
+
+        // Signature du client, si recueillie — meme image que sur l'ecran.
+        if (c.signature) {
+          try {
+            var base64 = c.signature.split(',')[1];
+            doc.moveDown(1.2).fillColor('#000').fontSize(10)
+              .text('Signé par le client le '
+                + jour(new Date(c.signeeLe || f.emise_le)));
+            doc.image(Buffer.from ? Buffer.from(base64, 'base64')
+              : base64ArrayBuffer(base64), doc.page.margins.left, doc.y + 4,
+              { width: 160 });
+            doc.moveDown(4);
+          } catch (errSig) { /* une signature illisible ne bloque pas le PDF */ }
+        }
+
+        // La partie paiement : la bibliotheque suisse gere elle-meme la
+        // pagination si la place manque sur cette page.
+        var qr = new SwissQRBillPDF.SwissQRBill({
+          currency: 'CHF', amount: B.toFrancs(f.total_rappen),
+          reference: f.reference_qr,
+          creditor: {
+            name: e.nom, address: e.adresse, buildingNumber: e.numero || '',
+            zip: Number(e.npa), city: e.localite, country: 'CH',
+            account: String(e.iban || '').replace(/\s/g, ''),
+          },
+          debtor: c.clientNom ? {
+            name: c.clientNom, address: c.adresse || '',
+            buildingNumber: c.numero || '', zip: Number(c.npa) || 0,
+            city: c.localite || '', country: 'CH',
+          } : undefined,
+        }, { language: 'FR' });
+        qr.attachTo(doc);
+
+        doc.end();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  /** Base64 -> ArrayBuffer, pour les navigateurs sans Buffer global. */
+  function base64ArrayBuffer(base64) {
+    var bin = global.atob(base64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
   /* ------------------------------------------------------------
      Facture
      ------------------------------------------------------------ */
@@ -418,7 +578,37 @@
           country: 'CH',
         };
       }
-      return { svg: new SwissQRBill(donnees, { language: 'FR' }).toString() };
+      var svg = new SwissQRBill(donnees, { language: 'FR' }).toString();
+      /*
+        DEFAUT VECU, serieux : sur telephone, la partie paiement ne
+        s'affichait qu'a moitie — « Section paiement » coupee au bord
+        de l'ecran, comme un extrait zoome plutot que le document
+        entier.
+
+        CAUSE, verifiee sur le vrai SVG produit par la bibliotheque :
+        son element racine porte `width="210mm" height="105mm"` mais
+        AUCUN `viewBox`. Sans viewBox, la regle CSS
+        `width:100%;height:auto` reduit bien la BOITE exterieure du
+        SVG a la largeur de l'ecran, mais le CONTENU dessine a
+        l'interieur reste positionne a sa taille physique d'origine
+        (210 mm, soit environ 794 px) : le navigateur ne SAIT PAS
+        comment redimensionner ce contenu puisque rien ne decrit son
+        systeme de coordonnees interne. Le resultat n'est pas un SVG
+        reduit, mais une FENETRE reduite ouverte sur un document
+        grandeur nature — d'ou la moitie manquante.
+
+        Le viewBox ajoute ici decrit exactement les memes dimensions,
+        converties en pixels a 96 dpi (le standard CSS pour le
+        millimetre) : 210 mm x 105 mm = 793.7 x 396.85. Il ne change
+        rien a l'affichage grandeur nature ni a l'impression — il
+        permet seulement au navigateur de reduire le contenu de facon
+        PROPORTIONNELLE quand on lui demande de tenir dans un ecran de
+        telephone.
+      */
+      if (!/viewBox=/.test(svg)) {
+        svg = svg.replace('<svg ', '<svg viewBox="0 0 793.7 396.85" ');
+      }
+      return { svg: svg };
     } catch (err) {
       return { erreur: err && err.message ? err.message : String(err) };
     }
@@ -616,6 +806,7 @@
     volDoiseauKm: volDoiseauKm,
     distanceRouteKm: distanceRouteKm,
     geocoder: geocoder,
+    construirePdfFacture: construirePdfFacture,
     referenceCreanciere: referenceCreanciere,
     chercherLocalites: chercherLocalites,
     lireNpaLocalite: lireNpaLocalite,

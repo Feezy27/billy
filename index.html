@@ -119,15 +119,27 @@
   .puce{background:#14161a;border:1px solid var(--ligne);color:var(--ivoire);
     border-radius:99px;padding:7px 12px;font-size:13px;cursor:pointer;
     width:auto;margin:0;font-weight:500}
-  #facture-entete .exp{font-size:13px;line-height:1.45}
-  #facture-entete .dest{margin-top:22px;font-size:14px;line-height:1.45}
+  #facture-entete .entete-cols{display:flex;justify-content:space-between;
+    gap:16px;margin-top:14px}
+  #facture-entete .entete-cols>*{flex:1;min-width:0}
+  #facture-entete .dest{font-size:14px;line-height:1.45}
+  /* Infos entreprise a droite : le texte s'aligne du meme cote. */
+  #facture-entete .exp{font-size:13px;line-height:1.45;text-align:right}
   #facture-entete .refs{margin-top:18px;font-size:13px;color:var(--brume)}
   #facture-entete .mentions{margin-top:14px;font-size:12px;color:var(--brume)}
+  /*
+    DEFAUT VECU : le numero de facture (« Facture F0004-2026 ») etait
+    ecrit en couleur claire par un style EN LIGNE, plus specifique que
+    toute regle CSS externe. Sur fond blanc a l'impression, la regle
+    qui assombrit le reste de cette zone ne pouvait pas l'atteindre :
+    il restait presque invisible. Une classe dediee, ci-dessous,
+    remplace ce style en ligne et peut enfin etre ciblee normalement.
+  */
+  #facture-entete .num-facture{color:var(--ivoire);font-size:16px}
   .logo-accueil{width:120px;height:120px;object-fit:contain}
-  /* Sur la facture, le logo reste discret : c'est un document, pas
-     une affiche. */
-  .logo-facture{width:96px;height:96px;object-fit:contain;float:right;
-    margin-left:14px}
+  /* Centre en haut du document, au-dessus des deux colonnes. */
+  .logo-facture{width:96px;height:96px;object-fit:contain;
+    display:block;margin:0 auto 4px}
   .regle{border:1px solid var(--ligne);border-radius:12px;margin-bottom:8px;
     overflow:hidden;background:#14161a}
   .regle-titre{width:100%;margin:0;border-radius:0;background:none;
@@ -158,7 +170,20 @@
     box-shadow:0 0 0 3px rgba(242,183,5,.22)}
   .groupe-choix .rappel{color:var(--brume);font-size:12px;margin-top:9px}
   .heure-champ{display:flex;align-items:center;gap:6px;min-width:0}
-  .heure-champ select{flex:1;min-width:0;text-align:center;padding:11px 4px}
+  /*
+    DEFAUT PERSISTANT malgre min-width:0, confirme par capture d'ecran
+    sur iPhone : `min-width:0` ne joue que sur le calcul de la mise en
+    page flexible. Or iOS impose, en plus, une largeur minimale au
+    RENDU reel d'un <select> a cause de l'icone de fleches qu'il
+    dessine tout seul — une limite que le calcul flexible ne peut pas
+    contourner de l'interieur, quoi qu'on lui dise de retrecir.
+
+    On retire directement cette icone (`appearance:none`) plutot que de
+    continuer a lutter contre elle : sans elle, plus rien n'oblige le
+    controle a etre plus large que ses deux chiffres.
+  */
+  .heure-champ select{flex:1;min-width:0;text-align:center;padding:11px 2px;
+    -webkit-appearance:none;appearance:none}
   .heure-champ span{color:var(--brume);font-weight:700;flex:0 0 auto}
   .ecran{display:none}
   .ecran.visible{display:block}
@@ -177,18 +202,33 @@
      navigation, boutons, fond noir. Une facture doit sortir en noir sur
      blanc, seule, et tenir sur une page. */
   @media print {
+    /*
+      DEFAUT VECU : la facture s'imprimait sur DEUX pages, la seconde
+      vide. Sans regle @page, le navigateur applique ses propres
+      marges par defaut (parfois 15 a 20 mm de chaque cote) : il
+      suffit d'un depassement de quelques millimetres pour qu'une
+      page entiere, presque vide, soit ajoutee.
+    */
+    @page { size: A4; margin: 10mm; }
     body{background:#fff;color:#000}
     nav,button,#etat-facture,#etat-devis,#resume-reglages,
     .rangee{display:none !important}
     .colonne{max-width:none;padding:0}
     h1{display:none}
-    .carte{background:#fff;border:0;padding:0;margin:0 0 14px;
+    .carte{background:#fff;border:0;padding:0;margin:0 0 10px;
       border-radius:0;color:#000}
     .muted,#facture-entete .refs,#facture-entete .mentions{color:#444}
+    /*
+      Sans cette ligne, le numero de facture resterait clair meme a
+      l'impression : sa propre couleur (definie plus haut pour l'ecran
+      sombre) est plus specifique que l'assombrissement general de
+      « .refs » ci-dessus, qui ne s'applique qu'au texte autour de lui.
+    */
+    #facture-entete .num-facture{color:#000}
     .ligne-facture{border-bottom:1px solid #ddd}
     .total.gros{border-top:2px solid #000}
     .logo-facture{width:84px;height:84px}
-    #qr-affichage{page-break-inside:avoid;margin-top:20px}
+    #qr-affichage{page-break-inside:avoid;margin-top:10px}
     #qr-affichage svg{background:#fff}
     .signature-vue{max-width:220px}
   }
@@ -404,6 +444,7 @@
     <div class="carte" id="qr-affichage"></div>
   </div>
   <button id="btn-imprimer">Imprimer / enregistrer en PDF</button>
+  <button id="btn-envoyer-facture" class="secondaire">Envoyer par e-mail</button>
   <button id="btn-payee" class="secondaire">Marquer comme payée</button>
   <div id="etat-facture"></div>
   <button id="btn-annuler-facture" class="secondaire">Annuler cette facture</button>
@@ -3090,9 +3131,15 @@
       if (i >= 0) interventions[i] = ligne; else interventions.unshift(ligne);
       rdvEnCours = null;
       afficherAgenda();
-      afficherInterventions();
       afficherBandeauHorsLigne();
-      montrer('interventions');
+      /*
+        FUSION DEMANDEE : un seul clic doit conduire directement a la
+        facture. Repasser par la liste « A facturer » et exiger un
+        second clic sur « Facturer » est precisement ce qui etait
+        reproche. `facturer()` s'occupe du reste : numero, calcul, et
+        ouverture immediate de l'ecran de facture.
+      */
+      facturer(ligne.id);
     }).catch(function (e) {
       message('carte-chiffrage', 'Enregistrement impossible : ' + (e.message || e));
     });
@@ -3151,7 +3198,16 @@
     // tranche, et deux appareils ne peuvent pas obtenir le meme.
     depot.prochainNumeroFacture('F').then(function (numero) {
       var f = window.BillySuisse.preparerFacture(donnees, reglages, numero);
-      if (f.erreur) { alert(f.erreur); libererVerrou(); return; }
+      if (f.erreur) {
+        alert(f.erreur);
+        libererVerrou();
+        // Sans cela, l'ecran restait bloque sur la saisie : rien ne
+        // montrait que l'intervention avait bien ete enregistree, ni
+        // ou aller pour la retrouver et corriger le probleme.
+        afficherInterventions();
+        montrer('interventions');
+        return;
+      }
 
       var ligne = {
         id: window.Billy.uuidv7(), rdv_id: it.id, numero: f.numero,
@@ -3189,6 +3245,8 @@
     }).catch(function (e) {
       alert('Facturation impossible : ' + (e.message || e));
       libererVerrou();
+      afficherInterventions();
+      montrer('interventions');
     });
   }
 
@@ -3383,21 +3441,24 @@
     // Le logo n'est ajoute que s'il se charge : une image cassee sur
     // une facture fait plus mauvais effet que pas d'image du tout.
     var h = '<img src="logo.png" alt="" class="logo-facture" '
-      + 'onerror="this.style.display=\'none\'">'
-      + '<div class="exp"><strong>' + (e.nom || '') + '</strong><br>'
-      + [e.adresse, e.numero].filter(Boolean).join(' ') + '<br>'
-      + [e.npa, e.localite].filter(Boolean).join(' ')
-      + (e.telephone ? '<br>' + e.telephone : '')
-      + (e.email ? '<br>' + e.email : '')
-      + '</div>';
+      + 'onerror="this.style.display=\'none\'">';
 
+    h += '<div class="entete-cols">';
     h += '<div class="dest">' + (c.clientNom || '') + '<br>'
       + (c.adresse || '') + '<br>'
       + [c.npa, c.localite].filter(Boolean).join(' ')
       + (c.email ? '<br>' + c.email : '') + '</div>';
 
-    h += '<div class="refs"><strong style="color:var(--ivoire);'
-      + 'font-size:16px">' + opts.titre + '</strong><br>'
+    h += '<div class="exp"><strong>' + (e.nom || '') + '</strong><br>'
+      + [e.adresse, e.numero].filter(Boolean).join(' ') + '<br>'
+      + [e.npa, e.localite].filter(Boolean).join(' ')
+      + (e.telephone ? '<br>' + e.telephone : '')
+      + (e.email ? '<br>' + e.email : '')
+      + '</div>';
+    h += '</div>';
+
+    h += '<div class="refs"><strong class="num-facture">' + opts.titre
+      + '</strong><br>'
       + opts.dateLibelle + ' : ' + jour(emise) + '<br>'
       + opts.echeanceLibelle + ' ' + jour(echeance) + '</div>';
 
@@ -3640,6 +3701,132 @@
     montrer('factures');
   });
   $('btn-imprimer').addEventListener('click', function () { window.print(); });
+
+  /*
+    ENVOYER LA FACTURE — ce qu'un site web peut et ne peut pas faire.
+
+    Aucune page web ne peut ouvrir l'appli Mail d'un telephone avec un
+    fichier deja joint ET un destinataire deja rempli en meme temps :
+    ce sont deux mecanismes distincts, et aucun des deux ne fait les
+    deux choses. Verifie aupres de plusieurs sources techniques avant
+    d'ecrire ce code, pas suppose :
+
+      - un lien « mailto: » preremplit destinataire, sujet et corps,
+        mais AUCUN navigateur ne permet d'y joindre un fichier — la
+        norme (RFC 6068) l'exclut expressement, pour des raisons de
+        securite communes a tous les navigateurs ;
+      - le partage natif du telephone (feuille de partage) SAIT joindre
+        un vrai fichier, mais ne prend pas de destinataire — il ouvre
+        un choix d'applications (Mail, WhatsApp, etc.), le destinataire
+        se choisit ensuite a la main.
+
+    On privilegie donc le partage natif AVEC LE PDF JOINT — Philippe
+    n'a plus qu'a choisir Mail et taper le destinataire, ce que son
+    telephone propose deja depuis ses contacts. Sans ce partage
+    (navigateur trop ancien), on revient au lien mailto, en expliquant
+    clairement qu'il faudra joindre le PDF a la main.
+  */
+
+  /** Charge un script une seule fois, meme si on le redemande. */
+  var scriptsCharges = {};
+  function chargerScript(src) {
+    if (scriptsCharges[src]) return scriptsCharges[src];
+    scriptsCharges[src] = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('Chargement impossible : ' + src)); };
+      document.head.appendChild(s);
+    });
+    return scriptsCharges[src];
+  }
+
+  /*
+    Gros fichiers (PDFKit fait plus d'un mega-octet) : on ne les charge
+    qu'au premier appui sur « Envoyer », pas au demarrage de
+    l'application — personne ne doit attendre ce telechargement pour
+    consulter son agenda.
+  */
+  function chargerOutilsPdf() {
+    return Promise.all([
+      chargerScript('pdfkit.js'),
+      chargerScript('qr-facture-pdf.js'),
+    ]);
+  }
+
+  /** Recupere le logo en octets bruts, pour l'incruster dans le PDF. */
+  function logoPourPdf() {
+    return fetch('logo.png').then(function (r) {
+      if (!r.ok) throw new Error('logo indisponible');
+      return r.arrayBuffer();
+    }).then(function (buf) { return new Uint8Array(buf); })
+      .catch(function () { return null; });
+  }
+
+  $('btn-envoyer-facture').addEventListener('click', function () {
+    var f = factureAffichee;
+    if (!f) return;
+    var email = ((f.donnees || {}).client || {}).email;
+    var sujet = 'Facture ' + f.numero;
+    var corps = 'Bonjour,\n\nVeuillez trouver ci-joint la facture ' + f.numero
+      + '.\n\nCordialement';
+
+    function repliMailto(raison) {
+      if (!email) {
+        message('etat-facture', 'Aucune adresse e-mail enregistrée pour ce '
+          + 'client.', 'info');
+        return;
+      }
+      if (raison) {
+        message('etat-facture', raison
+          + ' Ouverture de la messagerie — pensez à joindre le PDF '
+          + '(bouton « Imprimer / enregistrer en PDF ») avant d\u2019envoyer.',
+          'info');
+      }
+      window.open('mailto:' + encodeURIComponent(email)
+        + '?subject=' + encodeURIComponent(sujet)
+        + '&body=' + encodeURIComponent(corps), '_blank');
+    }
+
+    var partagePossible = typeof navigator.share === 'function'
+      && typeof navigator.canShare === 'function';
+    if (!partagePossible) {
+      repliMailto('Votre navigateur ne permet pas de joindre un fichier '
+        + 'directement.');
+      return;
+    }
+
+    message('etat-facture', 'Préparation du PDF…', 'info');
+    $('btn-envoyer-facture').disabled = true;
+
+    Promise.all([chargerOutilsPdf(), logoPourPdf()])
+      .then(function (r) {
+        var logo = r[1];
+        return window.BillySuisse.construirePdfFacture(
+          f, reglages, window.PDFDocument, window.SwissQRBillPDF, logo);
+      })
+      .then(function (blob) {
+        var fichier = new File([blob], 'Facture-' + f.numero + '.pdf',
+          { type: 'application/pdf' });
+        if (!navigator.canShare({ files: [fichier] })) {
+          throw new Error('PARTAGE_SANS_FICHIER');
+        }
+        return navigator.share({ files: [fichier], title: sujet, text: corps });
+      })
+      .then(function () {
+        message('etat-facture', '', 'info');
+      })
+      .catch(function (e) {
+        // L'utilisateur qui ferme la feuille de partage declenche aussi
+        // cette erreur : ce n'est pas un echec, on ne dit rien.
+        if (e && e.name === 'AbortError') { message('etat-facture', ''); return; }
+        repliMailto(e && e.message === 'PARTAGE_SANS_FICHIER'
+          ? 'Votre navigateur ne permet pas de joindre un fichier ici.'
+          : 'Génération du PDF impossible (' + (e && e.message || e) + ').');
+      })
+      .then(function () { $('btn-envoyer-facture').disabled = false; });
+  });
+
 
   /* ---------- Devis ---------- */
 
