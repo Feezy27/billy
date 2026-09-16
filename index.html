@@ -120,13 +120,28 @@
     border-radius:99px;padding:7px 12px;font-size:13px;cursor:pointer;
     width:auto;margin:0;font-weight:500}
   #facture-entete .entete-cols{display:flex;justify-content:space-between;
-    gap:16px;margin-top:14px}
+    gap:16px}
   #facture-entete .entete-cols>*{flex:1;min-width:0}
-  #facture-entete .dest{font-size:14px;line-height:1.45}
-  /* Infos entreprise a droite : le texte s'aligne du meme cote. */
-  #facture-entete .exp{font-size:13px;line-height:1.45;text-align:right}
-  #facture-entete .refs{margin-top:18px;font-size:13px;color:var(--brume)}
+  #facture-entete .dest{font-size:14px;line-height:1.45;text-align:right}
+  /* Logo et coordonnees de l'entreprise groupes dans le meme bloc, a
+     gauche — sur le modele du courrier papier de Philippe. */
+  #facture-entete .exp{font-size:13px;line-height:1.45}
+  #facture-entete .lieu-date{margin-top:16px;font-size:13px;
+    text-align:right}
+  #facture-entete .references{margin-top:16px;font-size:13px}
+  #facture-entete .refs{margin-top:14px;font-size:13px;color:var(--brume)}
   #facture-entete .mentions{margin-top:14px;font-size:12px;color:var(--brume)}
+  /*
+    Aspect « tableau », sur le modele papier fourni : une bordure entre
+    chaque ligne et une rangee d'en-tete, plutot qu'une simple liste.
+    Limite a la facture et au devis : `.ligne-facture` sert aussi
+    ailleurs (bilan, agenda), qui ne doivent pas hériter de ce style.
+  */
+  #facture-detail .ligne-facture, #devis-detail .ligne-facture{
+    border-bottom:1px solid var(--ligne);padding:7px 0}
+  #facture-detail .ligne-entete, #devis-detail .ligne-entete{
+    font-weight:800;font-size:11px;letter-spacing:.5px;
+    text-transform:uppercase;color:var(--brume);border-bottom-width:2px}
   /*
     DEFAUT VECU : le numero de facture (« Facture F0004-2026 ») etait
     ecrit en couleur claire par un style EN LIGNE, plus specifique que
@@ -137,9 +152,12 @@
   */
   #facture-entete .num-facture{color:var(--ivoire);font-size:16px}
   .logo-accueil{width:120px;height:120px;object-fit:contain}
-  /* Centre en haut du document, au-dessus des deux colonnes. */
-  .logo-facture{width:96px;height:96px;object-fit:contain;
-    display:block;margin:0 auto 4px}
+  /*
+    Dans le bloc entreprise, pas seul et centre : sur le modele fourni
+    (docx), logo et coordonnees forment un seul ensemble a gauche.
+  */
+  .logo-facture{width:64px;height:64px;object-fit:contain;
+    display:block;margin-bottom:6px}
   .regle{border:1px solid var(--ligne);border-radius:12px;margin-bottom:8px;
     overflow:hidden;background:#14161a}
   .regle-titre{width:100%;margin:0;border-radius:0;background:none;
@@ -160,10 +178,18 @@
     border-radius:14px;padding:12px;margin-bottom:14px}
   .groupe-choix > .titre{color:var(--ambre);font-size:11px;font-weight:800;
     letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px}
-  .choix{display:flex;flex-wrap:wrap;gap:8px}
-  .choix button{width:auto;margin:0;padding:11px 16px;font-size:15px;
+  /*
+    Boutons rectangulaires alignes en grille, sur le modele envoye —
+    plus la forme « pastille » d'avant. Deux colonnes ; quand le nombre
+    de choix est impair, le dernier s'etend sur toute la largeur
+    (`:last-child:nth-child(odd)`) plutot que de rester seul, plus
+    petit, dans la colonne de gauche.
+  */
+  .choix{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .choix button{margin:0;padding:14px 10px;font-size:15px;
     font-weight:600;background:#2b3038;color:var(--ivoire);
-    border:1px solid #454b56;border-radius:99px}
+    border:1px solid #454b56;border-radius:12px}
+  .choix button:last-child:nth-child(odd){grid-column:1 / -1}
   .choix button:active{transform:scale(.97)}
   .choix button.choisi{background:var(--ambre);color:#241c00;
     border-color:var(--ambre);font-weight:800;
@@ -227,7 +253,7 @@
     #facture-entete .num-facture{color:#000}
     .ligne-facture{border-bottom:1px solid #ddd}
     .total.gros{border-top:2px solid #000}
-    .logo-facture{width:84px;height:84px}
+    .logo-facture{width:56px;height:56px}
     #qr-affichage{page-break-inside:avoid;margin-top:10px}
     #qr-affichage svg{background:#fff}
     .signature-vue{max-width:220px}
@@ -281,19 +307,17 @@
     <div id="sugg-rdv-nom" class="suggestions"></div>
     <label for="rdv-tel">Téléphone</label>
     <input id="rdv-tel" type="tel" inputmode="tel">
-    <div class="rangee">
-      <div><label for="rdv-date">Date</label>
-        <input id="rdv-date" type="date"></div>
-      <div><label>Heure</label>
-        <div class="heure-champ">
-          <select id="rdv-heure-h"></select>
-          <span>:</span>
-          <select id="rdv-heure-m"></select>
-        </div>
-        <!-- Stocke « HH:MM » : c'est elle que le reste du code lit,
-             les deux listes ci-dessus ne servent qu'a la saisir. -->
-        <input type="hidden" id="rdv-heure"></div>
+    <label for="rdv-date">Date</label>
+    <input id="rdv-date" type="date">
+    <label>Heure</label>
+    <div class="heure-champ">
+      <select id="rdv-heure-h"></select>
+      <span>:</span>
+      <select id="rdv-heure-m"></select>
     </div>
+    <!-- Stocke « HH:MM » : c'est elle que le reste du code lit,
+         les deux listes ci-dessus ne servent qu'a la saisir. -->
+    <input type="hidden" id="rdv-heure">
     <label for="rdv-adresse">Adresse</label>
     <input id="rdv-adresse">
     <div class="rangee">
@@ -348,6 +372,8 @@
     <label for="cli-nom">Nom</label>
     <input id="cli-nom" autocomplete="off">
     <div id="sugg-cli-nom" class="suggestions"></div>
+    <label for="cli-tel">Téléphone du client</label>
+    <input id="cli-tel" type="tel" inputmode="tel">
     <div class="rangee">
       <div>
         <label for="cli-npa">NPA</label>
@@ -2806,6 +2832,9 @@
     $('cli-localite').value = it.localite || '';
     $('cli-adresse').value = it.adresse || '';
     $('cli-email').value = d.email || '';
+    // Le telephone note au telephone (rdv-tel) est repris tel quel :
+    // ne pas le redemander sur le terrain.
+    $('cli-tel').value = d.telephone || '';
     ['dist-km', 'duree-min', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     // Reprise d'une intervention DEJA saisie : on recharge ce qui a
@@ -3019,7 +3048,7 @@
   $('btn-nouvelle').addEventListener('click', function () {
     rdvEnCours = null;
     ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'cli-email',
-     'dist-km', 'duree-min', 'convenu-total', 'convenu-motif']
+     'cli-tel', 'dist-km', 'duree-min', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     nidsSaisie = [nidVide()];
     coutsSaisie = [];
@@ -3045,6 +3074,7 @@
       localite: $('cli-localite').value.trim(),
       adresse: $('cli-adresse').value.trim(),
       email: $('cli-email').value.trim(),
+      telephone: $('cli-tel').value.trim(),
       typeClient: $('cli-type').value,
       // Copie : sans elle, modifier le formulaire changerait aussi une
       // intervention deja enregistree.
@@ -3214,7 +3244,11 @@
         annee: new Date().getFullYear(), serie: 'F',
         total_rappen: f.totalRappen, reference_qr: f.reference,
         emise_le: f.emiseLe,
-        donnees: { lignes: f.lignes, totaux: f.totaux, client: donnees },
+        // La date de l'INTERVENTION (sur place) differe de la date
+        // d'EMISSION de la facture — les deux figurent sur le document,
+        // sur le modele de la facture papier de Philippe.
+        donnees: { lignes: f.lignes, totaux: f.totaux, client: donnees,
+                   dateIntervention: it.debut_le },
       };
       return depot.enregistrerFacture(ligne).then(function () {
         // La facture EXISTE desormais : visible et retrouvable tout
@@ -3335,7 +3369,9 @@
     }
     var d = f.donnees || {};
     ecrireEnteteFacture(f, d);
-    var h = (d.lignes || []).map(function (l) {
+    var h = '<div class="ligne-facture ligne-entete"><span>Désignation</span>'
+      + '<span>Montant</span></div>';
+    h += (d.lignes || []).map(function (l) {
       return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
         + window.Billy.formatChf(l.amount) + '</span></div>';
     }).join('');
@@ -3345,6 +3381,9 @@
       h += '<div class="total muted"><span>dont TVA</span><span>'
         + window.Billy.formatChf(d.totaux.vat) + '</span></div>';
     }
+    h += '<p class="muted" style="margin-top:16px">En vous remerciant de la '
+      + 'confiance que vous nous témoignez, nous vous prions d\u2019agréer, '
+      + 'Cher Client, nos salutations distinguées.</p>';
     $('facture-detail').innerHTML = h;
 
     var sig = (d.client || {}).signature;
@@ -3438,24 +3477,48 @@
     var echeance = new Date(opts.echeance || emise);
     var jour = function (x) { return x.toLocaleDateString('fr-CH'); };
 
-    // Le logo n'est ajoute que s'il se charge : une image cassee sur
-    // une facture fait plus mauvais effet que pas d'image du tout.
-    var h = '<img src="logo.png" alt="" class="logo-facture" '
-      + 'onerror="this.style.display=\'none\'">';
+    /*
+      Disposition reprise du modele papier de Philippe (docx fourni) :
+      logo ET coordonnees de l'entreprise groupes dans UN SEUL bloc a
+      gauche — pas le logo seul, centre, separe du texte comme avant —
+      les coordonnees du client dans un bloc a droite, en face.
+    */
+    var h = '<div class="entete-cols">';
+    h += '<div class="exp">'
+      // Le logo n'est ajoute que s'il se charge : une image cassee
+      // sur une facture fait plus mauvais effet que pas d'image.
+      + '<img src="logo.png" alt="" class="logo-facture" '
+      + 'onerror="this.style.display=\'none\'">'
+      + '<strong>' + (e.nom || '') + '</strong><br>'
+      + [e.adresse, e.numero].filter(Boolean).join(' ') + '<br>'
+      + [e.npa, e.localite].filter(Boolean).join(' ')
+      + (e.telephone ? '<br>Tél : ' + e.telephone : '')
+      + (e.email ? '<br>' + e.email : '')
+      + '</div>';
 
-    h += '<div class="entete-cols">';
     h += '<div class="dest">' + (c.clientNom || '') + '<br>'
       + (c.adresse || '') + '<br>'
       + [c.npa, c.localite].filter(Boolean).join(' ')
       + (c.email ? '<br>' + c.email : '') + '</div>';
-
-    h += '<div class="exp"><strong>' + (e.nom || '') + '</strong><br>'
-      + [e.adresse, e.numero].filter(Boolean).join(' ') + '<br>'
-      + [e.npa, e.localite].filter(Boolean).join(' ')
-      + (e.telephone ? '<br>' + e.telephone : '')
-      + (e.email ? '<br>' + e.email : '')
-      + '</div>';
     h += '</div>';
+
+    // « Bettens, le 11 septembre 2026 » — lieu d'emission + date,
+    // sur le meme modele qu'une lettre.
+    if (e.localite) {
+      h += '<div class="lieu-date">' + e.localite + ', le ' + jour(emise)
+        + '</div>';
+    }
+
+    var references = [];
+    if (d.dateIntervention) {
+      references.push('Intervention du ' + jour(new Date(d.dateIntervention)));
+    }
+    if (c.telephone) {
+      references.push('Votre téléphone : ' + c.telephone);
+    }
+    if (references.length) {
+      h += '<div class="references">' + references.join('<br>') + '</div>';
+    }
 
     h += '<div class="refs"><strong class="num-facture">' + opts.titre
       + '</strong><br>'
@@ -3893,7 +3956,9 @@
       sansIban: true,
     });
 
-    var h = (don.lignes || []).map(function (l) {
+    var h = '<div class="ligne-facture ligne-entete"><span>Désignation</span>'
+      + '<span>Montant</span></div>';
+    h += (don.lignes || []).map(function (l) {
       return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
         + window.Billy.formatChf(l.amount) + '</span></div>';
     }).join('');

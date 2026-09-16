@@ -339,37 +339,59 @@
 
         var largeurPage = doc.page.width - doc.page.margins.left
           - doc.page.margins.right;
-        var y = doc.page.margins.top;
-
-        // Logo centre en haut, dans le meme ordre que la version ecran.
-        if (logoBytes) {
-          var cote = 60;
-          doc.image(logoBytes, doc.page.margins.left + (largeurPage - cote) / 2,
-            y, { width: cote, height: cote });
-          y += cote + 12;
-        }
-
-        // Deux colonnes : client a gauche, entreprise a droite — meme
-        // disposition que le document affiche a l'ecran.
         var largeurColonne = largeurPage / 2 - 10;
         var xDroite = doc.page.margins.left + largeurPage / 2 + 10;
-        doc.fontSize(10).fillColor('#000');
+        var y = doc.page.margins.top;
+
+        /*
+          Disposition reprise du modele papier de Philippe : logo ET
+          coordonnees de l'entreprise regroupes dans le MEME bloc, a
+          gauche — pas le logo seul, centre, comme avant. Le client
+          occupe le bloc de droite, en face.
+        */
+        var yEntreprise = y;
+        if (logoBytes) {
+          var cote = 40;
+          doc.image(logoBytes, doc.page.margins.left, yEntreprise,
+            { width: cote, height: cote });
+          yEntreprise += cote + 6;
+        }
+        doc.fontSize(10).fillColor('#000')
+          .text([e.nom, [e.adresse, e.numero].filter(Boolean).join(' '),
+            [e.npa, e.localite].filter(Boolean).join(' '),
+            e.telephone ? 'Tél : ' + e.telephone : '', e.email]
+            .filter(Boolean).join('\n'),
+            doc.page.margins.left, yEntreprise, { width: largeurColonne });
 
         doc.text([c.clientNom, c.adresse,
           [c.npa, c.localite].filter(Boolean).join(' '), c.email]
           .filter(Boolean).join('\n'),
-          doc.page.margins.left, y, { width: largeurColonne });
-
-        doc.text([e.nom, [e.adresse, e.numero].filter(Boolean).join(' '),
-          [e.npa, e.localite].filter(Boolean).join(' '), e.telephone, e.email]
-          .filter(Boolean).join('\n'),
           xDroite, y, { width: largeurColonne, align: 'right' });
 
-        doc.y = y + 70;
+        doc.y = Math.max(yEntreprise + 60, y + 70);
         doc.x = doc.page.margins.left;
 
+        // « Bettens, le 11 septembre 2026 » — lieu d'emission + date.
+        if (e.localite) {
+          doc.moveDown(0.8).fontSize(10)
+            .text(e.localite + ', le ' + jour(emise), { align: 'right' });
+        }
+
+        var references = [];
+        if (d.dateIntervention) {
+          references.push('Intervention du '
+            + jour(new Date(d.dateIntervention)));
+        }
+        if (c.telephone) {
+          references.push('Votre téléphone : ' + c.telephone);
+        }
+        if (references.length) {
+          doc.moveDown(0.8).text(references.join('\n'),
+            doc.page.margins.left, doc.y, { width: largeurPage });
+        }
+
         // Numero, dates : mis en avant, comme sur l'ecran.
-        doc.fontSize(14).text(f.numero, { continued: false });
+        doc.moveDown(0.8).fontSize(14).text(f.numero, doc.page.margins.left);
         doc.fontSize(10).fillColor('#444')
           .text('Date : ' + jour(emise))
           .text('Payable jusqu\u2019au ' + jour(echeance));
@@ -417,6 +439,12 @@
           doc.text(B.formatChf(d.totaux.vat) + ' CHF',
             doc.page.margins.left, yVat, { width: largeurPage, align: 'right' });
         }
+
+        doc.moveDown(1).fontSize(9).fillColor('#444')
+          .text('En vous remerciant de la confiance que vous nous '
+            + 'témoignez, nous vous prions d\u2019agréer, Cher Client, nos '
+            + 'salutations distinguées.', doc.page.margins.left,
+            doc.y, { width: largeurPage });
 
         // Signature du client, si recueillie — meme image que sur l'ecran.
         if (c.signature) {
