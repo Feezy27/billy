@@ -132,6 +132,32 @@
     return Promise.resolve(true);
   };
 
+  /* ---------- Depenses (comptabilite) ---------- */
+
+  DepotLocal.prototype.listerDepenses = function () {
+    return Promise.resolve(lire('depenses', []).filter(function (x) {
+      return !x.supprime_le;
+    }));
+  };
+
+  DepotLocal.prototype.enregistrerDepense = function (d) {
+    var toutes = lire('depenses', []);
+    var i = toutes.findIndex(function (x) { return x.id === d.id; });
+    if (i >= 0) toutes[i] = d; else toutes.push(d);
+    ecrire('depenses', toutes);
+    return Promise.resolve(d);
+  };
+
+  DepotLocal.prototype.supprimerDepense = function (id) {
+    var toutes = lire('depenses', []);
+    var i = toutes.findIndex(function (x) { return x.id === id; });
+    if (i >= 0) {
+      toutes[i].supprime_le = new Date().toISOString();
+      ecrire('depenses', toutes);
+    }
+    return Promise.resolve(true);
+  };
+
   /* Une equipe n'a de sens qu'en ligne : en local, chaque appareil
      est seul avec ses donnees. */
   DepotLocal.prototype.listerMembres = function () {
@@ -360,10 +386,13 @@
   /** Applique un geste a la copie locale, pour que l'ecran soit juste. */
   DepotSupabase.prototype.miroirAppliquer = function (op) {
     if (op.type === 'reglages') { ecrire('miroir.reglages', op.valeur); return; }
-    var cle = (op.type === 'facture') ? 'miroir.factures' : 'miroir.interventions';
+    var cle = (op.type === 'facture') ? 'miroir.factures'
+      : (op.type === 'depense' || op.type === 'suppression-depense')
+        ? 'miroir.depenses'
+        : 'miroir.interventions';
     var liste = lire(cle, []);
     var i = liste.findIndex(function (x) { return x.id === op.id; });
-    if (op.type === 'suppression') {
+    if (op.type === 'suppression' || op.type === 'suppression-depense') {
       if (i >= 0) liste.splice(i, 1);
     } else if (i >= 0) { liste[i] = op.valeur; } else { liste.unshift(op.valeur); }
     ecrire(cle, liste);
@@ -393,9 +422,13 @@
         ? self.envoyerReglages(op.valeur)
         : (op.type === 'facture')
           ? self.envoyerFacture(op.valeur)
-          : (op.type === 'suppression')
-            ? self.envoyerSuppression(op.id)
-            : self.envoyerIntervention(op.valeur);
+          : (op.type === 'depense')
+            ? self.envoyerDepense(op.valeur)
+            : (op.type === 'suppression-depense')
+              ? self.envoyerSuppressionDepense(op.id)
+              : (op.type === 'suppression')
+                ? self.envoyerSuppression(op.id)
+                : self.envoyerIntervention(op.valeur);
 
       return envoi.then(function () { envoyes++; })
         .catch(function (e) {
@@ -490,6 +523,51 @@
       var op = { type: 'facture', id: f.id, valeur: f };
       self.miroirAppliquer(op); enFile(op);
       return f;
+    });
+  };
+
+  /* ---------- Depenses, cote Supabase ---------- */
+
+  DepotSupabase.prototype.listerDepenses = function () {
+    var self = this;
+    return this.client.from('depenses').select('*').is('supprime_le', null)
+      .order('date', { ascending: false })
+      .then(function (r) {
+        verifier(r);
+        self.horsLigne = false;
+        return self.enMiroir('depenses', r.data || []);
+      })
+      .catch(function () { return self.duMiroir('depenses', []); });
+  };
+
+  DepotSupabase.prototype.envoyerDepense = function (d) {
+    return this.client.from('depenses').upsert(d)
+      .then(function (r) { verifier(r); return d; });
+  };
+
+  DepotSupabase.prototype.enregistrerDepense = function (d) {
+    var self = this;
+    return this.envoyerDepense(d).catch(function (e) {
+      if (!estReseau(e)) throw e;
+      var op = { type: 'depense', id: d.id, valeur: d };
+      self.miroirAppliquer(op); enFile(op);
+      return d;
+    });
+  };
+
+  DepotSupabase.prototype.envoyerSuppressionDepense = function (id) {
+    return this.client.from('depenses')
+      .update({ supprime_le: new Date().toISOString() }).eq('id', id)
+      .then(function (r) { verifier(r); return true; });
+  };
+
+  DepotSupabase.prototype.supprimerDepense = function (id) {
+    var self = this;
+    return this.envoyerSuppressionDepense(id).catch(function (e) {
+      if (!estReseau(e)) throw e;
+      var op = { type: 'suppression-depense', id: id };
+      self.miroirAppliquer(op); enFile(op);
+      return true;
     });
   };
 

@@ -15,6 +15,7 @@
 <script src="qr-facture.js"></script>
 <script src="logique.js"></script>
 <script src="depot.js"></script>
+<script src="compta.js"></script>
 <style>
   /*
     THEME CLAIR — la palette choisie par Philippe. Toutes les couleurs
@@ -150,12 +151,53 @@
   nav{position:fixed;bottom:0;left:0;right:0;background:var(--marine);
     border-top:1px solid var(--marine);display:flex;justify-content:center;
     padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
-  nav .inner{display:flex;gap:6px;max-width:560px;width:100%}
+  nav .inner{display:flex;gap:5px;max-width:620px;width:100%}
+  /*
+    CINQ onglets depuis l'ajout de la comptabilite. Sur un iPhone de
+    390 px, cinq boutons a 13 px coupaient « À facturer » en deux
+    lignes : on descend d'un point et on resserre les marges
+    interieures plutot que de raccourcir les mots — un intitule
+    tronque se comprend moins bien qu'un texte un peu plus petit.
+  */
   nav button{flex:1;background:#262C3D;color:var(--beige);
-    border:1px solid #3A4155;margin:0;padding:11px 4px;
-    font-size:13px;font-weight:700;border-radius:11px}
+    border:1px solid #3A4155;margin:0;padding:11px 2px;
+    font-size:12px;font-weight:700;border-radius:11px;
+    line-height:1.15;white-space:nowrap}
   nav button.actif{background:var(--ambre-vif);color:var(--marine);
     border-color:var(--ambre)}
+  /* ---------- Comptabilite ---------- */
+  /*
+    Les tuiles du tableau de bord. Deux par ligne sur un telephone :
+    un chiffre doit se lire sans zoomer, donc pas plus de deux.
+    Le chiffre passe avant son intitule, en gros et en marine.
+  */
+  .tuiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;
+    margin-bottom:10px}
+  .tuile{background:var(--blanc);border:1px solid var(--ligne);
+    border-radius:14px;padding:12px}
+  .tuile .titre{color:var(--brume);font-size:11px;font-weight:700;
+    letter-spacing:1.1px;text-transform:uppercase}
+  .tuile .chiffre{font-size:22px;font-weight:800;margin-top:6px;
+    white-space:nowrap}
+  .tuile .sous{color:var(--brume);font-size:12px;margin-top:2px}
+  .tuile.large{grid-column:1 / -1}
+  /* Un resultat negatif doit se voir immediatement. */
+  .tuile .chiffre.perte{color:var(--rouge)}
+  .tuile.phare{background:var(--beige-fonce);border-color:var(--ambre)}
+  /* Journal et grand livre : des lignes serrees, lisibles en tableau. */
+  .ecriture{display:flex;gap:8px;align-items:baseline;
+    border-bottom:1px solid var(--ligne);padding:8px 0;font-size:13px}
+  .ecriture:last-child{border-bottom:0}
+  .ecriture .quand{color:var(--brume);font-size:12px;width:62px;
+    flex:none}
+  .ecriture .quoi{flex:1;min-width:0}
+  .ecriture .comptes{color:var(--brume);font-size:11px}
+  .ecriture .combien{font-weight:700;white-space:nowrap}
+  .ligne-solde{display:flex;justify-content:space-between;gap:8px;
+    padding:6px 0;font-size:14px;border-bottom:1px solid var(--ligne)}
+  .ligne-solde:last-child{border-bottom:0}
+  .ligne-solde .num{color:var(--brume);font-size:11px}
+  .ligne-solde strong{white-space:nowrap}
   .section{border:1px solid var(--ligne);border-radius:14px;
     margin-bottom:10px;overflow:hidden;background:var(--blanc)}
   .entete-section{width:100%;margin:0;border-radius:0;background:none;
@@ -325,6 +367,23 @@
     .logo-facture{width:56px;height:56px}
     #qr-affichage{page-break-inside:avoid;margin-top:10px}
     #qr-affichage svg{background:#fff}
+    /*
+      Mode « facture sur deux pages » (Reglages > Facturation) : la
+      partie paiement commence sur une feuille neuve. Les deux
+      proprietes sont necessaires : `page-break-before` pour Safari,
+      `break-before` pour les navigateurs recents.
+
+      Elle est POUSSEE EN BAS de cette feuille : la norme QR-facture
+      veut la partie paiement dans le bas de la page, detachable au
+      pli. Le calcul : une A4 fait 297 mm, moins 2 x 10 mm de marges
+      = 277 mm utiles ; la partie paiement dessinee ici occupe
+      environ 95 mm de haut ; on laisse donc environ 175 mm au-dessus
+      d'elle, avec une petite reserve pour ne pas declencher une 3e
+      page.
+    */
+    body.facture-deux-pages #qr-affichage{
+      page-break-before:always;break-before:page;
+      margin-top:0;padding-top:175mm}
     .signature-vue{max-width:220px}
   }
 </style>
@@ -560,6 +619,83 @@
   <button id="btn-retour-devis" class="secondaire">Retour</button>
 </div>
 
+<!-- ============ COMPTABILITE ============ -->
+<!--
+  La comptabilite se REGARDE avant de se saisir : les chiffres
+  d'abord, la saisie ensuite, les journaux en dessous et replies.
+  Tout est recalcule a chaque affichage, a partir des factures et des
+  depenses : aucune etape de « passation » a ne pas oublier.
+-->
+<div id="ecran-compta" class="colonne ecran">
+  <h1>Comptabilité</h1>
+  <div id="compta-etat"></div>
+
+  <div class="tuiles" id="compta-tuiles"></div>
+
+  <button id="btn-nouvelle-depense">+ Nouvelle dépense</button>
+
+  <div class="carte" id="carte-depense" style="display:none">
+    <div class="kicker">Nouvelle dépense</div>
+    <label for="dep-date">Date</label>
+    <input id="dep-date" type="date">
+    <label for="dep-libelle">Ce que c'est</label>
+    <input id="dep-libelle" placeholder="Plein d'essence, combinaison…">
+    <label for="dep-montant">Montant payé (CHF)</label>
+    <input id="dep-montant" type="number" step="0.05" inputmode="decimal">
+    <label for="dep-compte">Type de dépense</label>
+    <select id="dep-compte"></select>
+    <label for="dep-paiement">Payé depuis</label>
+    <select id="dep-paiement"></select>
+    <label for="dep-piece">N° de pièce justificative (facultatif)</label>
+    <input id="dep-piece" placeholder="Reçu 2026-014">
+    <p class="muted">Gardez le justificatif : en Suisse, aucune écriture
+      sans pièce, et tout se conserve dix ans.</p>
+    <button id="btn-enregistrer-depense">Enregistrer la dépense</button>
+    <div id="etat-depense"></div>
+    <button id="btn-annuler-depense" class="secondaire">Annuler</button>
+  </div>
+
+  <div class="section" data-section="c1">
+    <button class="entete-section" data-ouvrir="c1">
+      <span>Mes dépenses</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+      <div id="liste-depenses"></div>
+    </div>
+  </div>
+
+  <div class="section" data-section="c2">
+    <button class="entete-section" data-ouvrir="c2">
+      <span>Journal</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+      <p class="muted">Toutes les écritures de l'exercice, dans l'ordre.
+        Chacune inscrit le même montant au débit d'un compte et au crédit
+        d'un autre.</p>
+      <div id="compta-journal"></div>
+    </div>
+  </div>
+
+  <div class="section" data-section="c3">
+    <button class="entete-section" data-ouvrir="c3">
+      <span>Grand livre</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+      <p class="muted">Les mêmes écritures, classées par compte.</p>
+      <div id="compta-grand-livre"></div>
+    </div>
+  </div>
+
+  <div class="section" data-section="c4">
+    <button class="entete-section" data-ouvrir="c4">
+      <span>Bilan et compte de résultat</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+      <div id="compta-bilan"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ============ REGLAGES ============ -->
 <div id="ecran-reglages" class="colonne ecran">
   <h1>Réglages</h1>
@@ -610,14 +746,69 @@
     <label for="tva-numero">Numéro TVA / IDE</label>
     <input id="tva-numero" placeholder="CHE-123.456.789 TVA">
     <p class="muted">Obligatoire sur la facture si vous êtes assujetti.</p>
-    <label for="tva-delai">Payable sous (jours)</label>
-    <input id="tva-delai" type="number" inputmode="numeric">
-    <label for="devis-validite">Validité d'un devis (jours)</label>
-    <input id="devis-validite" type="number" inputmode="numeric">
     <p class="muted">Vos tarifs sont TTC : la TVA est affichée « dont TVA »,
       jamais ajoutée en bas de facture.</p>
     </div>
   </div>
+  </div>
+
+<!--
+  FACTURATION — tout ce qui concerne la forme des factures et des
+  devis. Le delai de paiement et la validite d'un devis etaient dans
+  la section TVA : ce sont des reglages de facturation, pas de TVA.
+  Ils gardent leurs identifiants, donc rien d'autre ne change.
+-->
+<div class="section" data-section="21">
+    <button class="entete-section" data-ouvrir="21">
+      <span>Facturation</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+
+  <div class="carte">
+    <label for="fact-pages">Mise en page du PDF</label>
+    <select id="fact-pages">
+      <option value="une">Sur une seule page (compacte)</option>
+      <option value="deux">Sur deux pages (paiement à part)</option>
+    </select>
+    <p class="muted" id="fact-pages-explication"></p>
+    <label for="tva-delai">Payable sous (jours)</label>
+    <input id="tva-delai" type="number" inputmode="numeric">
+    <label for="devis-validite">Validité d'un devis (jours)</label>
+    <input id="devis-validite" type="number" inputmode="numeric">
+    </div>
+  </div>
+  </div>
+
+<div class="section" data-section="22">
+    <button class="entete-section" data-ouvrir="22">
+      <span>Comptabilité</span><span class="chevron">›</span>
+    </button>
+    <div class="corps-section">
+  <div class="carte">
+    <p class="muted">Une Sàrl tient une comptabilité complète (art. 957 CO).
+      Ces réglages sont la base de tout le reste : ils décident de la
+      période comptée et du bilan de départ.</p>
+    <div class="rangee">
+      <div><label for="cpt-debut">Exercice du</label>
+        <input id="cpt-debut" type="date"></div>
+      <div><label for="cpt-fin">au</label>
+        <input id="cpt-fin" type="date"></div>
+    </div>
+    <label for="cpt-capital">Capital social versé (CHF)</label>
+    <input id="cpt-capital" type="number" step="0.05" inputmode="decimal">
+    <label for="cpt-paiement">Compte où l'argent arrive et part</label>
+    <select id="cpt-paiement"></select>
+  </div>
+
+  <div class="kicker">Plan comptable</div>
+  <p class="muted">Vos comptes, à votre main. Le numéro et le nom sont
+    modifiables ; la catégorie décide de la place au bilan ou au compte
+    de résultat.</p>
+  <div id="liste-comptes"></div>
+  <button id="btn-ajouter-compte" class="secondaire">+ Compte</button>
+  <button id="btn-plan-defaut" class="secondaire">Revenir au plan
+    proposé</button>
+    </div>
   </div>
 
 <div class="section" data-section="20">
@@ -765,6 +956,7 @@
   <button data-ecran="agenda">Agenda</button>
   <button data-ecran="interventions">À facturer</button>
   <button data-ecran="factures">Factures</button>
+  <button data-ecran="compta">Compta</button>
   <button data-ecran="reglages">Réglages</button>
 </div></nav>
 
@@ -787,6 +979,7 @@
   var reglages = null;
   var interventions = [];
   var factures = [];
+  var depenses = [];
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -803,7 +996,7 @@
 
   function montrer(nom) {
     ['connexion', 'agenda', 'rdv', 'interventions', 'nouvelle',
-     'factures', 'facture', 'devis', 'reglages']
+     'factures', 'facture', 'devis', 'compta', 'reglages']
       .forEach(function (e) {
         $('ecran-' + e).classList.toggle('visible', e === nom);
       });
@@ -824,11 +1017,20 @@
       afficherAides();
       afficherEtatSauvegarde();
       afficherResume();
+      remplirReglagesCompta();
     }
     // Recalcule a chaque passage : un devis qui expire aujourd'hui
     // resterait affiche « En attente » jusqu'au rechargement.
     if (nom === 'factures' && typeof afficherFactures === 'function') {
       afficherFactures();
+    }
+    /*
+      La comptabilite est RECALCULEE a chaque passage. C'est ce qui la
+      rend vivante : une facture marquee payee il y a dix secondes est
+      deja dans le resultat, sans aucune etape de passation.
+    */
+    if (nom === 'compta' && typeof afficherCompta === 'function') {
+      afficherCompta();
     }
     window.scrollTo(0, 0);
   }
@@ -920,6 +1122,10 @@
     }).then(function (f) {
       factures = f || [];
       afficherFactures();
+      return depot.listerDepenses ? depot.listerDepenses() : [];
+    }).then(function (d) {
+      depenses = d || [];
+      afficherCompta();
     }).catch(function (e) {
       message('erreur-connexion', 'Chargement impossible : ' + (e.message || e));
     });
@@ -975,6 +1181,10 @@
     $('tva-numero').value = reglages.tva.numero || '';
     $('tva-delai').value = reglages.tva.delaiJours || 30;
     $('devis-validite').value = reglages.tva.validiteDevisJours || 30;
+    $('fact-pages').value = (reglages.facturation
+      && reglages.facturation.pdfDeuxPages) ? 'deux' : 'une';
+    expliquerMiseEnPage();
+    remplirReglagesCompta();
     $('annee-compta').value = new Date().getFullYear();
     var deg = reglages.degressivite;
     $('deg-type').value = deg ? deg.type : '';
@@ -992,6 +1202,22 @@
     verifierIban();
   }
 
+  /*
+    MISE EN PAGE DU PDF — le choix n'est pas evident a l'oeil nu dans
+    une liste deroulante : on ecrit sous le champ ce que chaque option
+    donne reellement.
+  */
+  function expliquerMiseEnPage() {
+    var deux = $('fact-pages').value === 'deux';
+    $('fact-pages-explication').textContent = deux
+      ? 'La page 1 ne porte que les informations et le total. La partie '
+        + 'paiement (récépissé + QR) occupe le bas d\u2019une 2e page, '
+        + 'détachable. Deux feuilles à imprimer.'
+      : 'Informations, total et partie paiement sur la même feuille. '
+        + 'Une facture très longue passera quand même sur une 2e page : '
+        + 'la partie paiement suisse mesure 105 mm et ne se coupe jamais.';
+  }
+
   function verifierIban() {
     var v = $('ent-iban').value.trim();
     if (!v) { message('etat-iban', ''); return; }
@@ -1005,6 +1231,7 @@
     }
   }
   $('ent-iban').addEventListener('blur', verifierIban);
+  $('fact-pages').addEventListener('change', expliquerMiseEnPage);
 
   /* ---------- Sauvegarde et restauration ---------- */
 
@@ -1802,6 +2029,15 @@
     reglages.tva.delaiJours = parseInt($('tva-delai').value, 10) || 30;
     reglages.tva.validiteDevisJours =
       parseInt($('devis-validite').value, 10) || 30;
+    if (!reglages.facturation) reglages.facturation = {};
+    reglages.facturation.pdfDeuxPages = $('fact-pages').value === 'deux';
+
+    var cpt = assurerCompta();
+    cpt.exerciceDebut = $('cpt-debut').value;
+    cpt.exerciceFin = $('cpt-fin').value;
+    cpt.capitalRappen = $('cpt-capital').value
+      ? window.Billy.chf(parseFloat($('cpt-capital').value)) : 0;
+    cpt.comptePaiement = $('cpt-paiement').value || '1020';
 
     // Les regles et le deplacement sont deja a jour : chaque champ
     // ecrit dans `reglages` au moment ou il change. Un formulaire
@@ -3466,10 +3702,22 @@
     }
 
     var qr = window.BillySuisse.partiePaiementQR(
-      { totalRappen: f.total_rappen, reference: f.reference_qr },
+      { totalRappen: f.total_rappen, reference: f.reference_qr,
+        numero: f.numero },
       reglages, d.client, window.SwissQRBill);
     $('qr-affichage').innerHTML = qr.erreur
       ? '<div class="alerte">QR-facture : ' + qr.erreur + '</div>' : qr.svg;
+
+    /*
+      Le bouton « Imprimer / enregistrer en PDF » imprime CET ecran :
+      il doit donc obeir au meme reglage que le PDF envoye par e-mail.
+      Une classe sur le document suffit, la regle @media print s'en
+      sert pour forcer un saut de page avant la partie paiement.
+      (Un style en ligne serait ignore a l'impression : regle du
+      projet, les styles en ligne l'emportent sur @media print.)
+    */
+    document.body.classList.toggle('facture-deux-pages',
+      !!(reglages.facturation && reglages.facturation.pdfDeuxPages));
 
     montrer('facture');
   }
@@ -3530,6 +3778,12 @@
     var delai = (reglages.tva && reglages.tva.delaiJours) || 30;
     ecrireEnteteDocument('facture-entete', f, d, {
       titre: 'Facture ' + f.numero,
+      /*
+        La reference de paiement figure en clair sur la facture : c'est
+        elle qui reviendra sur le releve bancaire en face du virement.
+        Un client qui paie a la main la recopie ; Philippe la compare.
+      */
+      reference: f.reference_qr,
       dateLibelle: 'Date',
       echeanceLibelle: 'Payable jusqu\u2019au',
       echeance: new Date(
@@ -3592,7 +3846,12 @@
     h += '<div class="refs"><strong class="num-facture">' + opts.titre
       + '</strong><br>'
       + opts.dateLibelle + ' : ' + jour(emise) + '<br>'
-      + opts.echeanceLibelle + ' ' + jour(echeance) + '</div>';
+      + opts.echeanceLibelle + ' ' + jour(echeance)
+      + (opts.reference
+        ? '<br>Référence de paiement : '
+          + window.BillySuisse.referenceLisible(opts.reference)
+        : '')
+      + '</div>';
 
     var mentions = [];
     if (reglages.tva && reglages.tva.assujetti && reglages.tva.numero) {
@@ -3617,6 +3876,365 @@
         + (f.donnees.motifAnnulation || '') + '</div>';
     }
     $(cible).innerHTML = h;
+  }
+
+  /* ============================================================
+     COMPTABILITE — l'ecran
+
+     DEFAUT VECU ici meme : ces fonctions s'appelaient d'abord
+     afficherBilan(), afficherJournal()… Or afficherBilan() existait
+     DEJA plus bas, pour le bilan d'activite. La seconde definition
+     ecrase la premiere sans le moindre message : le bilan comptable
+     restait vide, et rien n'indiquait pourquoi. D'ou le prefixe
+     « compta » sur tout ce qui vit dans cet ecran.
+
+     Rien n'est stocke ici : les ecritures sont recalculees par
+     compta.js a partir des factures et des depenses, a chaque
+     affichage. Une facture encaissee apparait donc dans le resultat
+     a l'instant ou elle est marquee payee.
+     ============================================================ */
+
+  function reglagesCompta() {
+    return window.BillyCompta.compta(reglages);
+  }
+
+  function donneesCompta() {
+    return { factures: factures, depenses: depenses };
+  }
+
+  /** Les comptes d'un ou plusieurs types, pour remplir une liste. */
+  function comptesDeType(types) {
+    return reglagesCompta().plan.filter(function (c) {
+      return types.indexOf(c.type) >= 0;
+    });
+  }
+
+  function remplirListeComptes(champ, types, valeur) {
+    var el = $(champ);
+    if (!el) return;
+    el.innerHTML = comptesDeType(types).map(function (c) {
+      return '<option value="' + c.numero + '">' + c.numero + ' — '
+        + c.libelle + '</option>';
+    }).join('');
+    if (valeur) el.value = valeur;
+  }
+
+  var chf = function (rappen) { return window.Billy.formatChf(rappen); };
+
+  function afficherCompta() {
+    if (!$('compta-tuiles')) return;
+    var manque = window.BillyCompta.champsManquants(reglages);
+    if (manque.length) {
+      $('compta-etat').innerHTML = '<div class="info">Pour que la '
+        + 'comptabilité tienne debout, il manque : ' + manque.join(', ')
+        + '. Cela se règle dans Réglages › Comptabilité.</div>';
+    } else {
+      $('compta-etat').innerHTML = '';
+    }
+
+    var lignes = window.BillyCompta.journal(donneesCompta(), reglages);
+    var tb = window.BillyCompta.tableauDeBord(donneesCompta(), reglages);
+    var reg = reglagesCompta();
+
+    var periode = (reg.exerciceDebut && reg.exerciceFin)
+      ? 'Exercice du ' + new Date(reg.exerciceDebut).toLocaleDateString('fr-CH')
+        + ' au ' + new Date(reg.exerciceFin).toLocaleDateString('fr-CH')
+      : 'Exercice non défini';
+
+    var perte = tb.resultat < 0;
+    $('compta-tuiles').innerHTML =
+      '<div class="tuile phare large"><div class="titre">'
+      + (perte ? 'Perte de l\u2019exercice' : 'Bénéfice de l\u2019exercice')
+      + '</div><div class="chiffre' + (perte ? ' perte' : '') + '">'
+      + chf(tb.resultat) + ' CHF</div>'
+      + '<div class="sous">' + periode + '</div></div>'
+
+      + '<div class="tuile"><div class="titre">Trésorerie</div>'
+      + '<div class="chiffre">' + chf(tb.tresorerie) + '</div>'
+      + '<div class="sous">banque et caisse</div></div>'
+
+      + '<div class="tuile"><div class="titre">À encaisser</div>'
+      + '<div class="chiffre">' + chf(tb.aEncaisser) + '</div>'
+      + '<div class="sous">factures pas encore payées</div></div>'
+
+      + '<div class="tuile"><div class="titre">Produits</div>'
+      + '<div class="chiffre">' + chf(tb.produits) + '</div>'
+      + '<div class="sous">facturé sur l\u2019exercice</div></div>'
+
+      + '<div class="tuile"><div class="titre">Charges</div>'
+      + '<div class="chiffre">' + chf(tb.charges) + '</div>'
+      + '<div class="sous">dépenses de l\u2019exercice</div></div>';
+
+    comptaAfficherDepenses();
+    comptaAfficherJournal(lignes);
+    comptaAfficherGrandLivre(lignes);
+    comptaAfficherBilan(lignes);
+  }
+
+  function comptaAfficherDepenses() {
+    var reg = reglagesCompta();
+    var dansPeriode = depenses.slice().sort(function (a, b) {
+      return a.date < b.date ? 1 : -1;
+    });
+    if (!dansPeriode.length) {
+      $('liste-depenses').innerHTML = '<p class="muted">Aucune dépense '
+        + 'enregistrée. Essence, matériel, assurances : tout ce que '
+        + 'l\u2019entreprise paie se saisit ici.</p>';
+      return;
+    }
+    var nom = function (numero) {
+      var c = reg.plan.filter(function (x) { return x.numero === numero; })[0];
+      return c ? c.libelle : 'Compte ' + numero;
+    };
+    $('liste-depenses').innerHTML = dansPeriode.map(function (d) {
+      return '<div class="carte"><strong>' + (d.libelle || 'Dépense')
+        + '</strong> <span class="pastille">' + nom(d.compte) + '</span>'
+        + '<div class="muted">'
+        + new Date(d.date).toLocaleDateString('fr-CH') + ' · '
+        + chf(d.montant_rappen) + ' CHF'
+        + (d.piece ? ' · pièce ' + d.piece : '') + '</div>'
+        + '<button class="secondaire" data-supprimer-depense="' + d.id
+        + '">Supprimer</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-supprimer-depense]'), function (b) {
+        b.addEventListener('click', function () {
+          if (!window.confirm('Supprimer cette dépense ?')) return;
+          var id = b.dataset.supprimerDepense;
+          depot.supprimerDepense(id).then(function () {
+            depenses = depenses.filter(function (x) { return x.id !== id; });
+            afficherCompta();
+          });
+        });
+      });
+  }
+
+  function comptaAfficherJournal(lignes) {
+    if (!lignes.length) {
+      $('compta-journal').innerHTML = '<p class="muted">Aucune écriture '
+        + 'pour l\u2019instant.</p>';
+      return;
+    }
+    var controle = window.BillyCompta.controle(lignes);
+    $('compta-journal').innerHTML = '<div class="carte">'
+      + lignes.map(function (l) {
+        return '<div class="ecriture"><span class="quand">'
+          + new Date(l.date).toLocaleDateString('fr-CH') + '</span>'
+          + '<span class="quoi">' + l.libelle
+          + '<div class="comptes">débit ' + l.debit + ' · crédit '
+          + l.credit + '</div></span>'
+          + '<span class="combien">' + chf(l.montant) + '</span></div>';
+      }).join('')
+      + '</div>'
+      + '<div class="' + (controle.equilibre ? 'ok' : 'alerte') + '">'
+      + (controle.equilibre
+        ? lignes.length + ' écritures, débits et crédits égaux : '
+          + chf(controle.debits) + ' CHF de chaque côté.'
+        : 'Débits et crédits ne s\u2019équilibrent pas — signalez-le-moi.')
+      + '</div>';
+  }
+
+  function comptaAfficherGrandLivre(lignes) {
+    var comptes = window.BillyCompta.grandLivre(lignes, reglages)
+      .filter(function (c) { return c.lignes.length; });
+    if (!comptes.length) {
+      $('compta-grand-livre').innerHTML = '<p class="muted">Rien à '
+        + 'classer pour l\u2019instant.</p>';
+      return;
+    }
+    $('compta-grand-livre').innerHTML = '<div class="carte">'
+      + comptes.map(function (c) {
+        return '<div class="ligne-solde"><span>' + c.libelle
+          + '<div class="num">' + c.numero + ' · ' + c.lignes.length
+          + ' écriture' + (c.lignes.length > 1 ? 's' : '') + '</div></span>'
+          + '<strong>' + chf(c.solde) + '</strong></div>';
+      }).join('') + '</div>';
+  }
+
+  function comptaAfficherBilan(lignes) {
+    var b = window.BillyCompta.bilan(lignes, reglages);
+    var bloc = function (titre, comptes, total, libelleTotal) {
+      return '<div class="carte"><div class="kicker">' + titre + '</div>'
+        + (comptes.length ? comptes.map(function (c) {
+          return '<div class="ligne-solde"><span>' + c.libelle
+            + '<div class="num">' + c.numero + '</div></span>'
+            + '<strong>' + chf(c.solde) + '</strong></div>';
+        }).join('') : '<p class="muted">Rien à présenter.</p>')
+        + '<div class="ligne-solde"><span><strong>' + libelleTotal
+        + '</strong></span><strong>' + chf(total) + '</strong></div></div>';
+    };
+    var perte = b.resultat < 0;
+    $('compta-bilan').innerHTML =
+      bloc('Actif — ce que l\u2019entreprise possède', b.actif, b.totalActif,
+        'Total actif')
+      + bloc('Passif — d\u2019où vient l\u2019argent', b.passif.concat([{
+        numero: '', libelle: (perte ? 'Perte' : 'Bénéfice')
+          + ' de l\u2019exercice', solde: b.resultat,
+      }]), b.totalPassif, 'Total passif')
+      + bloc('Produits', b.produits, b.totalProduits, 'Total des produits')
+      + bloc('Charges', b.charges, b.totalCharges, 'Total des charges')
+      + '<div class="' + (b.equilibre ? 'ok' : 'alerte') + '">'
+      + (b.equilibre
+        ? 'Le bilan est équilibré : actif et passif tombent tous deux sur '
+          + chf(b.totalActif) + ' CHF.'
+        : 'Bilan déséquilibré de ' + chf(b.ecart) + ' CHF — '
+          + 'signalez-le-moi, c\u2019est un défaut.')
+      + '</div>';
+  }
+
+  /* ---------- Saisir une depense ---------- */
+
+  function ouvrirDepense(ouvrir) {
+    $('carte-depense').style.display = ouvrir ? 'block' : 'none';
+    $('btn-nouvelle-depense').style.display = ouvrir ? 'none' : 'block';
+    if (!ouvrir) return;
+    var reg = reglagesCompta();
+    $('dep-date').value = new Date().toISOString().slice(0, 10);
+    $('dep-libelle').value = '';
+    $('dep-montant').value = '';
+    $('dep-piece').value = '';
+    remplirListeComptes('dep-compte', ['charge', 'actif'], '6200');
+    remplirListeComptes('dep-paiement', ['actif'], reg.comptePaiement);
+    message('etat-depense', '');
+  }
+
+  $('btn-nouvelle-depense').addEventListener('click', function () {
+    ouvrirDepense(true);
+  });
+  $('btn-annuler-depense').addEventListener('click', function () {
+    ouvrirDepense(false);
+  });
+
+  $('btn-enregistrer-depense').addEventListener('click', function () {
+    var b = $('btn-enregistrer-depense');
+    // Verrou anti-double-clic : sans lui, deux appuis creent deux
+    // depenses identiques — et une comptabilite fausse.
+    if (b.disabled) return;
+    var montant = parseFloat($('dep-montant').value);
+    if (!$('dep-date').value || !montant || montant <= 0) {
+      message('etat-depense', 'Il faut au moins une date et un montant.',
+        'alerte');
+      return;
+    }
+    b.disabled = true;
+    var d = {
+      id: window.Billy.uuidv7(),
+      date: $('dep-date').value,
+      libelle: $('dep-libelle').value.trim() || 'Dépense',
+      montant_rappen: window.Billy.chf(montant),
+      compte: $('dep-compte').value,
+      paiement: $('dep-paiement').value,
+      piece: $('dep-piece').value.trim(),
+    };
+    depot.enregistrerDepense(d).then(function () {
+      // La depense entre dans la liste AVANT tout le reste : une
+      // ecriture enregistree mais invisible serait pire qu'un refus.
+      depenses.push(d);
+      ouvrirDepense(false);
+      afficherCompta();
+    }).catch(function (e) {
+      message('etat-depense', 'Enregistrement impossible : '
+        + (e.message || e), 'alerte');
+    }).then(function () { b.disabled = false; });
+  });
+
+  /* ---------- Reglages : exercice et plan comptable ---------- */
+
+  function remplirReglagesCompta() {
+    if (!$('cpt-debut')) return;
+    var reg = reglagesCompta();
+    $('cpt-debut').value = reg.exerciceDebut || '';
+    $('cpt-fin').value = reg.exerciceFin || '';
+    $('cpt-capital').value = reg.capitalRappen
+      ? (reg.capitalRappen / 100) : '';
+    remplirListeComptes('cpt-paiement', ['actif'], reg.comptePaiement);
+    afficherPlanComptable();
+  }
+
+  var TYPES_COMPTE = [
+    { id: 'actif', libelle: 'Actif (ce qu\u2019on possède)' },
+    { id: 'passif', libelle: 'Passif (dettes, capital)' },
+    { id: 'produit', libelle: 'Produit (ce qui rentre)' },
+    { id: 'charge', libelle: 'Charge (ce qui sort)' },
+  ];
+
+  function afficherPlanComptable() {
+    var reg = reglagesCompta();
+    $('liste-comptes').innerHTML = reg.plan.map(function (c, i) {
+      return '<div class="carte" data-compte="' + i + '">'
+        + '<div class="rangee">'
+        + '<div><label>N°</label><input data-cc="numero" value="'
+        + c.numero + '" inputmode="numeric"></div>'
+        + '<div style="flex:3"><label>Nom</label><input data-cc="libelle" '
+        + 'value="' + String(c.libelle).replace(/"/g, '&quot;') + '"></div>'
+        + '</div>'
+        + '<label>Catégorie</label><select data-cc="type">'
+        + TYPES_COMPTE.map(function (t) {
+          return '<option value="' + t.id + '"'
+            + (t.id === c.type ? ' selected' : '') + '>' + t.libelle
+            + '</option>';
+        }).join('')
+        + '</select>'
+        + '<button class="secondaire" data-retirer-compte="' + i
+        + '">Retirer</button></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#liste-comptes [data-cc]'), function (el) {
+        el.addEventListener('change', function () {
+          var i = Number(el.closest('[data-compte]').dataset.compte);
+          assurerCompta().plan[i][el.dataset.cc] = el.value.trim
+            ? el.value.trim() : el.value;
+          remplirListeComptes('cpt-paiement', ['actif'],
+            reglagesCompta().comptePaiement);
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-retirer-compte]'), function (b) {
+        b.addEventListener('click', function () {
+          var i = Number(b.dataset.retirerCompte);
+          var c = assurerCompta().plan[i];
+          /*
+            Un compte deja utilise ne doit pas disparaitre : ses
+            ecritures existent, et le grand livre afficherait un
+            « Compte 6200 » sans nom. On previent au lieu de refuser.
+          */
+          var lignes = window.BillyCompta.journal(donneesCompta(), reglages);
+          var utilise = lignes.some(function (l) {
+            return l.debit === c.numero || l.credit === c.numero;
+          });
+          if (utilise && !window.confirm('Ce compte porte déjà des '
+            + 'écritures. Le retirer ne les efface pas, mais il '
+            + 'apparaîtra sans nom. Continuer ?')) return;
+          assurerCompta().plan.splice(i, 1);
+          afficherPlanComptable();
+        });
+      });
+  }
+
+  /** Cree le bloc de reglages comptables s'il manque encore. */
+  function assurerCompta() {
+    if (!reglages.comptabilite) {
+      reglages.comptabilite = window.BillyCompta.comptaParDefaut();
+    }
+    if (!reglages.comptabilite.plan || !reglages.comptabilite.plan.length) {
+      reglages.comptabilite.plan = window.BillyCompta.planParDefaut();
+    }
+    return reglages.comptabilite;
+  }
+
+  if ($('btn-ajouter-compte')) {
+    $('btn-ajouter-compte').addEventListener('click', function () {
+      assurerCompta().plan.push({ numero: '', libelle: 'Nouveau compte',
+        type: 'charge' });
+      afficherPlanComptable();
+    });
+    $('btn-plan-defaut').addEventListener('click', function () {
+      if (!window.confirm('Remplacer votre plan comptable par celui '
+        + 'proposé ? Vos comptes personnalisés seront perdus.')) return;
+      assurerCompta().plan = window.BillyCompta.planParDefaut();
+      afficherPlanComptable();
+    });
   }
 
   /* ---------- Bilan d'activite ---------- */

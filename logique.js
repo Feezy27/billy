@@ -41,6 +41,50 @@
         assujetti: true,
       },
       /*
+        FACTURATION — comment le PDF est mis en page.
+
+        `pdfDeuxPages: false` (defaut) : tout est compacte sur UNE
+        page, la partie paiement occupant le bas de cette page.
+        `pdfDeuxPages: true` : la page 1 ne porte que les
+        informations, la partie paiement occupe le bas d'une 2e page.
+      */
+      facturation: {
+        pdfDeuxPages: false,
+      },
+
+      /*
+        COMPTABILITE — tenue legale en partie double (Sarl : obligatoire
+        quel que soit le chiffre d'affaires, art. 957 CO).
+
+        `comptes` : le plan comptable, editable comme les autres listes
+        (insectes, hauteurs...). Chaque compte a une CLASSE qui fixe son
+        sens normal :
+          actif, charge  -> le compte augmente au DEBIT
+          passif, produit -> le compte augmente au CREDIT
+
+        `dateDebutExercice` / `dateFinExercice` : bornes de l'exercice
+        en cours. Pas encore de gestion multi-exercices (clotures,
+        report a nouveau) : ce sera une etape suivante, quand la
+        premiere annee touchera a sa fin.
+
+        `capitalSocial` : sert a fabriquer l'ecriture d'ouverture
+        (Banque a Capital-social) le jour ou l'exercice est active.
+        Non remis a zero d'une annee sur l'autre : le capital ne
+        change pas juste parce que l'annee change.
+
+        Vide au depart, comme la grille tarifaire : ce n'est qu'en
+        activant la section Comptabilite (Reglages) qu'un plan
+        comptable de depart est propose.
+      */
+      compta: {
+        actif: false,
+        dateDebutExercice: '',
+        dateFinExercice: '',
+        capitalSocial: 0,
+        comptes: [],
+      },
+
+      /*
         Toutes les regles sont des PRIX DE BASE : chacune donne un prix
         complet pour une situation donnee. Il n'y a plus de
         supplements qui s'ajoutent, donc plus de question de cumul.
@@ -306,6 +350,41 @@
   }
 
   /**
+   * La reference telle qu'elle se lit et se recopie : par tranches.
+   *
+   * C'est ce que Philippe verra sur son releve bancaire en face du
+   * virement recu. Presentee en un seul bloc, elle est illisible et
+   * impossible a comparer a l'oeil.
+   *
+   *   SCOR : RF39 F000 1202 6   (tranches de 4 apres « RF » + controle)
+   *   QRR  : 00 00000 00000 00000 00120 26x  (2 puis tranches de 5)
+   */
+  function referenceLisible(reference) {
+    var r = String(reference || '').replace(/\s/g, '');
+    if (!r) return '';
+    if (/^RF/i.test(r)) return r.replace(/(.{4})/g, '$1 ').trim();
+    return (r.slice(0, 2) + ' ' + r.slice(2).replace(/(.{5})/g, '$1 ')).trim();
+  }
+
+  /**
+   * Ce qui accompagne le virement, en clair : « Facture F0012-2026 ».
+   *
+   * POURQUOI, alors que la reference contient deja le numero : la
+   * reference est faite pour les machines (elle revient telle quelle
+   * dans le fichier de la banque). Le champ « informations
+   * supplementaires » est fait pour les humains — il s'imprime sur le
+   * recepisse ET sur la section paiement, et les e-banking le
+   * recopient dans le libelle du virement. Le client voit donc ce
+   * qu'il paie, et Philippe voit d'ou vient l'argent recu.
+   *
+   * Limite de la norme : 140 caracteres. « Facture F0012-2026 » en
+   * fait 19, aucune raison de tronquer.
+   */
+  function messageDePaiement(numero) {
+    return numero ? ('Facture ' + numero).slice(0, 140) : undefined;
+  }
+
+  /**
    * Construit un vrai fichier PDF de la facture — pas une capture
    * d'ecran, un document texte genere directement, page par page,
    * avec la partie paiement QR-facture integree par la bibliotheque
@@ -330,6 +409,26 @@
         var echeance = new Date(emise.getTime() + delai * 86400000);
         var jour = function (x) { return x.toLocaleDateString('fr-CH'); };
 
+        /*
+          MISE EN PAGE, choisie dans Reglages > Facturation.
+
+          La partie paiement suisse mesure 105 mm de haut et se place
+          toujours en bas d'une page (norme QR-facture).
+
+          - Sur UNE page (defaut) : le contenu s'ecrit normalement et
+            la partie paiement se pose dans le bas de cette meme page.
+          - Sur DEUX pages : on ajoute une page A4 entiere apres le
+            contenu, et la partie paiement se pose en bas de celle-ci.
+
+          ESSAI QUI A ECHOUE, garde ici pour ne pas le refaire :
+          reserver les 105 mm du bas en marge basse du document
+          paraissait plus propre, mais la partie paiement ecrit
+          justement dans cette bande — PDFKit ouvrait alors une page
+          nouvelle a chaque ligne dessinee, et un PDF de 2 lignes
+          sortait sur 13 pages.
+        */
+        var deuxPages = !!(reglages.facturation
+          && reglages.facturation.pdfDeuxPages);
         var doc = new PDFDocumentCtor({ size: 'A4', margin: 50 });
         var chunks = [];
         doc.on('data', function (ch) { chunks.push(ch); });
@@ -395,6 +494,15 @@
         doc.fontSize(10).fillColor('#444')
           .text('Date : ' + jour(emise))
           .text('Payable jusqu\u2019au ' + jour(echeance));
+        /*
+          La reference de paiement, ecrite aussi en toutes lettres sur
+          la facture : c'est elle qui revient sur le releve bancaire.
+          Un client qui paie a la main peut la recopier.
+        */
+        if (f.reference_qr) {
+          doc.text('Référence de paiement : '
+            + referenceLisible(f.reference_qr));
+        }
 
         var mentions = [];
         if (reglages.tva && reglages.tva.assujetti && reglages.tva.numero) {
@@ -460,11 +568,10 @@
           } catch (errSig) { /* une signature illisible ne bloque pas le PDF */ }
         }
 
-        // La partie paiement : la bibliotheque suisse gere elle-meme la
-        // pagination si la place manque sur cette page.
         var qr = new SwissQRBillPDF.SwissQRBill({
           currency: 'CHF', amount: B.toFrancs(f.total_rappen),
           reference: f.reference_qr,
+          message: messageDePaiement(f.numero),
           creditor: {
             name: e.nom, address: e.adresse, buildingNumber: e.numero || '',
             zip: Number(e.npa), city: e.localite, country: 'CH',
@@ -476,6 +583,22 @@
             city: c.localite || '', country: 'CH',
           } : undefined,
         }, { language: 'FR' });
+
+        /*
+          Ou poser la partie paiement.
+
+          En mode DEUX PAGES : sur une page A4 neuve, toujours.
+
+          En mode UNE PAGE : dans le bas de la page courante s'il y
+          reste la place. Sinon on ajoute nous-memes une page A4
+          entiere — car laissee seule, la bibliotheque suisse cree une
+          page a la taille du recepisse (210 x 105 mm), une feuille
+          tronquee qui s'imprime mal avec le reste.
+        */
+        if (deuxPages
+          || !SwissQRBillPDF.SwissQRBill.isSpaceSufficient(doc)) {
+          doc.addPage();
+        }
         qr.attachTo(doc);
 
         doc.end();
@@ -592,6 +715,7 @@
         currency: 'CHF',
         amount: B.toFrancs(facture.totalRappen),
         reference: facture.reference,
+        message: messageDePaiement(facture.numero),
         creditor: {
           name: e.nom, address: e.adresse,
           buildingNumber: e.numero || '', zip: Number(e.npa),
@@ -836,6 +960,8 @@
     geocoder: geocoder,
     construirePdfFacture: construirePdfFacture,
     referenceCreanciere: referenceCreanciere,
+    referenceLisible: referenceLisible,
+    messageDePaiement: messageDePaiement,
     chercherLocalites: chercherLocalites,
     lireNpaLocalite: lireNpaLocalite,
     preparerDevis: preparerDevis,
