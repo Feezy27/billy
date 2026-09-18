@@ -528,8 +528,6 @@
     <label for="dist-km">Distance aller (km)</label>
     <input id="dist-km" type="number" min="0" inputmode="decimal">
     <div id="etat-distance"></div>
-    <label for="duree-min">Durée sur place (min) — facultatif</label>
-    <input id="duree-min" type="number" min="0" inputmode="numeric">
   </div>
 
   <div class="kicker">Coûts ponctuels</div>
@@ -2489,18 +2487,64 @@
     jour ferait manquer un rendez-vous pris le matin meme par le
     collegue.
   */
+  /*
+    DEFAUT VECU (capture du 18.09, pleine barre de reseau affichee) :
+    le bandeau restait bloque sur « Sans réseau », alors que le
+    telephone avait deja retrouve la couverture. En cause : la seule
+    tentative de renvoi avait lieu au DEMARRAGE de l'application
+    (chargerTout, plus haut) — rien ne redeclenchait un envoi ensuite,
+    meme des heures apres. Le bandeau lui-meme conseillait de
+    « rouvrir l'application », ce qui n'a rien d'automatique pour
+    Philippe.
+
+    Trois nouveaux declencheurs, tous vers la meme fonction :
+     - le navigateur signale le retour du reseau (evenement 'online') ;
+     - l'iPhone repasse l'application au premier plan (l'evenement
+       'online' n'est pas fiable dans une PWA iOS — le retour au
+       premier plan l'est) ;
+     - le bouton « Réessayer maintenant » du bandeau, pour ne pas
+       attendre.
+  */
+  var resynchronisationEnCours = false;
+
+  function retenterSynchronisation() {
+    if (resynchronisationEnCours || !depot || !depot.synchroniser) return;
+    resynchronisationEnCours = true;
+    chargerTout().then(function () {
+      resynchronisationEnCours = false;
+      afficherBandeauHorsLigne();
+    }).catch(function () {
+      resynchronisationEnCours = false;
+      afficherBandeauHorsLigne();
+    });
+  }
+
+  window.addEventListener('online', retenterSynchronisation);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') retenterSynchronisation();
+  });
+
   function afficherBandeauHorsLigne() {
     var zone = $('bandeau-horsligne');
     if (!zone) return;
     var attente = (depot && depot.enAttente)
       ? depot.enAttente() : 0;
     if (!depot || (!depot.horsLigne && !attente)) { zone.innerHTML = ''; return; }
+    var bouton = '<button class="secondaire" id="btn-reessayer-reseau" '
+      + 'style="margin-top:8px">'
+      + (resynchronisationEnCours ? 'Nouvel essai en cours…'
+        : 'Réessayer maintenant') + '</button>';
     if (!depot.horsLigne && attente) {
       // Revenu en ligne mais des gestes n'ont pas pu partir : le
-      // silence laisserait croire que tout est synchronise.
+      // silence laisserait croire que tout est synchronise. Depuis
+      // les nouveaux declencheurs ci-dessus, ce cas devrait devenir
+      // rare — il reste utile si l'envoi rate pour une AUTRE raison
+      // que le reseau (ex. la banque de donnees refuse la ligne).
       zone.innerHTML = '<div class="info">' + attente + ' geste'
-        + (attente > 1 ? 's' : '') + ' en attente d\u2019envoi. '
-        + 'Rouvrez l\u2019application dans une zone couverte.</div>';
+        + (attente > 1 ? 's' : '') + ' en attente d\u2019envoi.'
+        + bouton + '</div>';
+      $('btn-reessayer-reseau').addEventListener('click',
+        retenterSynchronisation);
       return;
     }
 
@@ -2519,7 +2563,9 @@
       texte += ' ' + enAttente + ' geste'
         + (enAttente > 1 ? 's' : '') + ' en attente d\u2019envoi.';
     }
-    zone.innerHTML = '<div class="alerte">' + texte + '</div>';
+    zone.innerHTML = '<div class="alerte">' + texte + bouton + '</div>';
+    $('btn-reessayer-reseau').addEventListener('click',
+      retenterSynchronisation);
   }
 
   /* ---------- Agenda ---------- */
@@ -3140,12 +3186,11 @@
     // Le telephone note au telephone (rdv-tel) est repris tel quel :
     // ne pas le redemander sur le terrain.
     $('cli-tel').value = d.telephone || '';
-    ['dist-km', 'duree-min', 'convenu-total', 'convenu-motif']
+    ['dist-km', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     // Reprise d'une intervention DEJA saisie : on recharge ce qui a
     // ete note, sinon « Modifier » effacerait tout le travail.
     $('dist-km').value = d.distanceKm == null ? '' : d.distanceKm;
-    $('duree-min').value = d.dureeMin || it.duree_min || '';
     if (d.prixConvenu) {
       $('convenu-total').value = d.prixConvenu.total / 100;
       $('convenu-motif').value = d.prixConvenu.motif || '';
@@ -3353,7 +3398,7 @@
   $('btn-nouvelle').addEventListener('click', function () {
     rdvEnCours = null;
     ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'cli-email',
-     'cli-tel', 'dist-km', 'duree-min', 'convenu-total', 'convenu-motif']
+     'cli-tel', 'dist-km', 'convenu-total', 'convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     nidsSaisie = [nidVide()];
     coutsSaisie = [];
@@ -3388,8 +3433,6 @@
                  heightId: n.heightId || undefined };
       }),
       distanceKm: $('dist-km').value ? parseFloat($('dist-km').value) : null,
-      dureeMin: $('duree-min').value
-        ? parseInt($('duree-min').value, 10) : undefined,
       supplementsPonctuels: coutsSaisie.filter(function (c) {
         return c.amount > 0;
       }).map(function (c) { return { label: c.label, amount: c.amount }; }),
@@ -3431,7 +3474,7 @@
     $('carte-chiffrage').innerHTML = h;
   }
 
-  ['dist-km', 'duree-min', 'convenu-total', 'convenu-motif',
+  ['dist-km', 'convenu-total', 'convenu-motif',
    'cli-npa', 'cli-type'].forEach(function (id) {
     $(id).addEventListener('change', rafraichirChiffrage);
     $(id).addEventListener('input', rafraichirChiffrage);
@@ -4521,6 +4564,24 @@
     var corps = 'Bonjour,\n\nVeuillez trouver ci-joint la facture ' + f.numero
       + '.\n\nCordialement';
 
+    /*
+      Le partage natif (plus bas) joint le PDF mais ne peut pas
+      preremplir le destinataire — ce n'est techniquement pas possible
+      avec des fichiers partages (contrairement a un simple lien
+      mailto:, qui lui n'accepte aucune piece jointe). Philippe devait
+      donc retaper l'adresse a chaque envoi.
+
+      On la copie dans le presse-papiers, TOUT DE SUITE et de façon
+      synchrone : Safari n'autorise l'ecriture dans le presse-papiers
+      que dans le prolongement immediat d'un geste de l'utilisateur.
+      Attendre la fin de la construction du PDF (une bonne seconde)
+      sortirait de cette fenetre et l'ecriture serait refusee en
+      silence.
+    */
+    if (email && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(email).catch(function () {});
+    }
+
     function repliMailto(raison) {
       if (!email) {
         message('etat-facture', 'Aucune adresse e-mail enregistrée pour ce '
@@ -4564,7 +4625,10 @@
         return navigator.share({ files: [fichier], title: sujet, text: corps });
       })
       .then(function () {
-        message('etat-facture', '', 'info');
+        message('etat-facture', email
+          ? 'Adresse ' + email + ' copiée : collez-la dans le champ '
+            + '« À » de Mail.'
+          : '', 'info');
       })
       .catch(function (e) {
         // L'utilisateur qui ferme la feuille de partage declenche aussi
@@ -4753,7 +4817,16 @@
                       nomFichierExport: nomFichierExport,
                       etat: function () { return {
                         reglages: reglages, interventions: interventions,
-                        factures: factures, mode: depot && depot.mode }; } };
+                        factures: factures, depenses: depenses,
+                        mode: depot && depot.mode }; },
+                      // Reserve aux tests : remplacer le depot en place
+                      // (simuler « hors ligne ») et redessiner le
+                      // bandeau sans repasser par tout l'ecran de
+                      // connexion.
+                      depotPourTests: function (d) { depot = d; },
+                      rafraichirBandeauHorsLigne: function () {
+                        afficherBandeauHorsLigne();
+                      } };
 
   chargerCacheGeo();
   brancherSections();
