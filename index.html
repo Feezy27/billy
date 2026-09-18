@@ -68,6 +68,20 @@
     border:1px solid var(--ligne-forte);background:var(--blanc);
     color:var(--marine);font-size:16px;font-family:inherit;
     accent-color:var(--ambre)}
+  /*
+    DEFAUT VECU, confirme sur capture iPhone le 18.09.2026 : le champ
+    Date debordait du cadre blanc, un coin arrondi visible jusque dans
+    la marge droite de l'ecran.
+
+    CAUSE : Safari iOS reserve, pour un <input type="date">, un espace
+    interne calcule sur la longueur du texte affiche ( « 18 sept.
+    2026 » est plus long qu'un format tout en chiffres) — et cette
+    reservation ignore la largeur CSS qu'on lui donne. `appearance:
+    none` retire ce comportement natif : Safari applique alors
+    normalement `width:100%`, comme il le fait deja pour tous les
+    autres champs de ce formulaire.
+  */
+  input[type="date"]{-webkit-appearance:none;appearance:none}
   input:focus,select:focus{outline:2px solid var(--ambre);border-color:transparent}
   button{width:100%;padding:14px;border:0;border-radius:12px;
     background:var(--ambre-vif);color:var(--marine);font-weight:800;font-size:16px;
