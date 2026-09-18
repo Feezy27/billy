@@ -133,17 +133,36 @@
       */
       aides: [],
 
-      /* Listes parametrables, utilisees par les conditions. */
+      /*
+        Listes parametrables, utilisees par les conditions.
+
+        RENOMME A L'ECRAN en « Type d'intervention » (demande du
+        19.09) : la cle interne `hauteurs` reste inchangee pour ne
+        rien casser de ce qui existe deja — regles tarifaires
+        (`critere: 'hauteur'`), interventions enregistrees, table
+        Supabase. Seuls les libelles affiches changent.
+
+        `dureeMin` : temps moyen estime pour une intervention de ce
+        type, en minutes. Sert a estimer l'heure de fin d'un
+        rendez-vous — jamais a facturer.
+      */
       hauteurs: [
-        { id: 'h0_3', libelle: "Jusqu'à 3 m" },
-        { id: 'h3_8', libelle: '3 à 8 m' },
-        { id: 'h8_15', libelle: '8 à 15 m' },
-        { id: 'h15p', libelle: 'Plus de 15 m' },
+        { id: 'h0_3', libelle: "Jusqu'à 3 m", dureeMin: 30 },
+        { id: 'h3_8', libelle: '3 à 8 m', dureeMin: 40 },
+        { id: 'h8_15', libelle: '8 à 15 m', dureeMin: 50 },
+        { id: 'h15p', libelle: 'Plus de 15 m', dureeMin: 60 },
       ],
 
       deplacement: {
         mode: 'par_km', montant: 0, chfKm: 1.2,
         allerRetour: true, franchiseKm: 10, zones: [], cantons: [],
+        /*
+          Vitesse moyenne supposee, pour ESTIMER une duree de trajet a
+          partir d'un kilometrage (Reglages > Frais de deplacement).
+          N'affecte aucun montant facture — seulement les horaires
+          proposes dans l'agenda et la prise de rendez-vous.
+        */
+        vitesseKmh: 60,
       },
       insectes: [
         { id: 'guepes', libelle: 'Guêpes' },
@@ -833,6 +852,28 @@
     return Math.round(volDoiseauKm(a, b) * FACTEUR_ROUTE * 10) / 10;
   }
 
+  /*
+    Duree de trajet, a partir d'une distance et d'une vitesse moyenne
+    (Reglages > Frais de deplacement, modifiable — les routes de
+    campagne vaudoises ne se parcourent pas a la meme vitesse qu'une
+    autoroute).
+
+    ARRONDI AUX 5 MINUTES LES PLUS PROCHES, tel que demande : « 13 min
+    reelles = 15 min affichees » (13 est plus proche de 15 que de 10).
+    `Math.round`, pas `Math.ceil` — un arrondi systematiquement au
+    dessus n'est pas ce qui a ete demande.
+
+    C'est une ESTIMATION parmi d'autres dans Billy (comme la distance
+    elle-meme) : utile pour proposer un horaire, jamais une promesse
+    au client.
+  */
+  function dureeTrajetMin(km, vitesseKmh) {
+    if (km == null || !isFinite(km) || km <= 0) return 0;
+    var v = vitesseKmh > 0 ? vitesseKmh : 60;
+    var minutesReelles = (km / v) * 60;
+    return Math.round(minutesReelles / 5) * 5;
+  }
+
   /**
    * Interroge le geocodeur suisse officiel (gratuit, sans cle).
    *
@@ -957,6 +998,7 @@
     ordonnerParPrecision: ordonnerParPrecision,
     volDoiseauKm: volDoiseauKm,
     distanceRouteKm: distanceRouteKm,
+    dureeTrajetMin: dureeTrajetMin,
     geocoder: geocoder,
     construirePdfFacture: construirePdfFacture,
     referenceCreanciere: referenceCreanciere,

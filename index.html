@@ -198,6 +198,46 @@
   .ligne-solde:last-child{border-bottom:0}
   .ligne-solde .num{color:var(--brume);font-size:11px}
   .ligne-solde strong{white-space:nowrap}
+  /* ---------- Calendrier ---------- */
+  /*
+    Un grand nombre de petites cases : les cibles de doigt comptent
+    plus que la densite. `aspect-ratio` garde des cases carrees quel
+    que soit le nombre de semaines affichees (iOS 15+, largement
+    couvert).
+  */
+  .calendrier{margin-bottom:6px}
+  .calendrier-entete{display:flex;align-items:center;
+    justify-content:space-between;margin-bottom:8px}
+  .calendrier-entete .mois{font-weight:800;font-size:15px;
+    text-transform:capitalize}
+  .cal-nav{width:auto;margin:0;padding:6px 16px;font-size:16px;
+    font-weight:800;background:var(--beige-fonce);color:var(--marine);
+    border-radius:9px}
+  .calendrier-jours{display:grid;grid-template-columns:repeat(7,1fr);
+    gap:2px;text-align:center;color:var(--brume);font-size:11px;
+    font-weight:700;margin-bottom:4px}
+  .calendrier-grille{display:grid;grid-template-columns:repeat(7,1fr);
+    gap:4px}
+  .jour-cal{width:auto;margin:0;padding:0;aspect-ratio:1;
+    display:flex;flex-direction:column;align-items:center;
+    justify-content:center;border-radius:10px;
+    border:1px solid transparent;background:var(--blanc);
+    color:var(--marine);font-weight:700;font-size:14px}
+  .jour-cal.hors-mois{color:var(--brume);background:transparent;
+    font-weight:500}
+  /* Un jour deja pris : leger fond, pour le reperer sans le compter. */
+  .jour-cal.a-des-rdv{background:var(--beige-fonce)}
+  .jour-cal.aujourdhui{border-color:var(--ambre)}
+  .jour-cal.choisi{background:var(--ambre-vif);color:var(--marine);
+    border-color:var(--ambre)}
+  .jour-cal .pastille-rdv{width:5px;height:5px;border-radius:50%;
+    background:var(--ambre);margin-top:2px}
+  .jour-cal.choisi .pastille-rdv{background:var(--marine)}
+  .cal-aujourdhui{margin-top:8px;padding:9px}
+  .apercu-ligne{font-size:13px;color:var(--marine);padding:5px 0;
+    border-bottom:1px solid var(--ligne)}
+  .apercu-ligne:last-child{border-bottom:0}
+
   .section{border:1px solid var(--ligne);border-radius:14px;
     margin-bottom:10px;overflow:hidden;background:var(--blanc)}
   .entete-section{width:100%;margin:0;border-radius:0;background:none;
@@ -415,6 +455,13 @@
 <div id="ecran-agenda" class="colonne ecran">
   <div id="bandeau-horsligne"></div>
   <h1 id="agenda-titre">Agenda</h1>
+  <!--
+    Vue d'ensemble du mois, demandee pour voir d'un coup d'oeil les
+    jours deja pris. Les fleches ‹ Aujourd'hui › juste en dessous
+    restent utiles pour avancer d'un jour a la fois sans toucher au
+    calendrier.
+  -->
+  <div class="calendrier" id="calendrier-agenda"></div>
   <div class="rangee">
     <button id="btn-jour-avant" class="secondaire">‹</button>
     <button id="btn-aujourdhui" class="secondaire">Aujourd'hui</button>
@@ -435,17 +482,6 @@
     <div id="sugg-rdv-nom" class="suggestions"></div>
     <label for="rdv-tel">Téléphone</label>
     <input id="rdv-tel" type="tel" inputmode="tel">
-    <label for="rdv-date">Date</label>
-    <input id="rdv-date" type="date">
-    <label>Heure</label>
-    <div class="heure-champ">
-      <select id="rdv-heure-h"></select>
-      <span>:</span>
-      <select id="rdv-heure-m"></select>
-    </div>
-    <!-- Stocke « HH:MM » : c'est elle que le reste du code lit,
-         les deux listes ci-dessus ne servent qu'a la saisir. -->
-    <input type="hidden" id="rdv-heure">
     <label for="rdv-adresse">Adresse</label>
     <input id="rdv-adresse">
     <div class="rangee">
@@ -467,7 +503,7 @@
       <div id="rdv-types"></div>
     </div>
     <div class="groupe-choix">
-      <div class="titre">Hauteur estimée du nid</div>
+      <div class="titre">Type d'intervention</div>
       <div id="rdv-hauteurs"></div>
     </div>
     <label for="rdv-nids">Nombre de nids annoncé (indicatif)</label>
@@ -478,6 +514,40 @@
 
     <label for="rdv-note">Ce que dit le client</label>
     <textarea id="rdv-note" rows="3"></textarea>
+
+    <!--
+      Date et heure EN DERNIER : au telephone, c'est ce qui se decide
+      a la toute fin de l'appel, une fois que le client a accepte le
+      prix. Les mettre en tete forcait a deviner un creneau avant
+      meme de savoir si le client allait confirmer.
+    -->
+    <div class="kicker">Quand</div>
+    <!--
+      Demande de Philippe : voir d'un coup d'oeil ses rendez-vous deja
+      pris au moment d'en fixer un nouveau, pour ne pas surcharger un
+      jour sans le savoir.
+    -->
+    <div class="calendrier" id="calendrier-rdv"></div>
+    <div id="apercu-jour-rdv"></div>
+    <label for="rdv-date">Date</label>
+    <input id="rdv-date" type="date">
+    <label>Heure</label>
+    <div class="heure-champ">
+      <select id="rdv-heure-h"></select>
+      <span>:</span>
+      <select id="rdv-heure-m"></select>
+    </div>
+    <!-- Stocke « HH:MM » : c'est elle que le reste du code lit,
+         les deux listes ci-dessus ne servent qu'a la saisir. -->
+    <input type="hidden" id="rdv-heure">
+    <!--
+      Demande de Philippe : estimer le trajet et le temps sur place,
+      pour savoir a quelle heure il sera libre — sans jamais compter
+      de retour si un autre rendez-vous s'enchaine (ca, c'est encore a
+      construire : pour l'instant, l'estimation suppose un retour
+      direct chez lui).
+    -->
+    <div id="rdv-duree-estimee"></div>
   </div>
   <button id="btn-enregistrer-rdv">Enregistrer le rendez-vous</button>
   <div id="etat-rdv"></div>
@@ -819,9 +889,12 @@
     <div class="kicker">Insectes</div>
     <div id="liste-insectes"></div>
     <button id="btn-ajouter-insecte" class="secondaire">+ Insecte</button>
-    <div class="kicker">Hauteurs</div>
+    <div class="kicker">Types d'intervention</div>
+    <p class="muted">Ce qui décide du temps moyen sur place. Le nom et la
+      durée sont modifiables ; ajoutez-en autant que nécessaire.</p>
     <div id="liste-hauteurs"></div>
-    <button id="btn-ajouter-hauteur" class="secondaire">+ Hauteur</button>
+    <button id="btn-ajouter-hauteur" class="secondaire">+ Type
+      d'intervention</button>
     <div class="kicker">Types de client</div>
     <div id="liste-types"></div>
     <button id="btn-ajouter-type" class="secondaire">+ Type de client</button>
@@ -893,6 +966,11 @@
       <option value="cantons">Par canton</option>
     </select>
     <div id="dep-champs"></div>
+    <label for="dep-vitesse">Vitesse moyenne estimée (km/h)</label>
+    <input id="dep-vitesse" type="number" min="1" step="5" inputmode="numeric">
+    <p class="muted">Sert uniquement à estimer un temps de trajet dans
+      l'agenda et la prise de rendez-vous — jamais à calculer un montant.
+      Durée arrondie aux 5 minutes les plus proches.</p>
     </div>
   </div>
   </div>
@@ -1193,6 +1271,7 @@
     afficherListes();
     remplirTypesClient();
     afficherDeplacement();
+    $('dep-vitesse').value = reglages.deplacement.vitesseKmh || 60;
     afficherAides();
     afficherEtatSauvegarde();
     afficherMembres();
@@ -1230,6 +1309,10 @@
   }
   $('ent-iban').addEventListener('blur', verifierIban);
   $('fact-pages').addEventListener('change', expliquerMiseEnPage);
+  $('dep-vitesse').addEventListener('change', function () {
+    reglages.deplacement.vitesseKmh =
+      parseInt($('dep-vitesse').value, 10) || 60;
+  });
 
   /* ---------- Sauvegarde et restauration ---------- */
 
@@ -1411,7 +1494,7 @@
 
   var CRITERES = [
     { id: 'insecte',     libelle: 'Insecte',        liste: 'insectes' },
-    { id: 'hauteur',     libelle: 'Hauteur',        liste: 'hauteurs' },
+    { id: 'hauteur',     libelle: "Type d'intervention", liste: 'hauteurs' },
     { id: 'type_client', libelle: 'Type de client', liste: 'typesClient' },
   ];
 
@@ -1634,8 +1717,9 @@
   var LISTES = [
     { cle: 'insectes',    zone: 'liste-insectes', bouton: 'btn-ajouter-insecte',
       exemple: 'Nouvel insecte' },
+    // `avecDuree` : seule cette liste porte un temps moyen estime.
     { cle: 'hauteurs',    zone: 'liste-hauteurs', bouton: 'btn-ajouter-hauteur',
-      exemple: 'Nouvelle hauteur' },
+      exemple: "Nouveau type d'intervention", avecDuree: true },
     { cle: 'typesClient', zone: 'liste-types',    bouton: 'btn-ajouter-type',
       exemple: 'Nouveau type' },
   ];
@@ -1645,9 +1729,16 @@
       var items = reglages[L.cle] || [];
       $(L.zone).innerHTML = items.map(function (v, i) {
         return '<div class="rangee" style="margin-bottom:6px">'
-          + '<input data-liste="' + L.cle + '" data-i="' + i + '" value="'
+          + '<input data-liste="' + L.cle + '" data-i="' + i + '" '
+          + (L.avecDuree ? 'style="flex:2" ' : '') + 'value="'
           + (v.libelle || '').replace(/"/g, '&quot;') + '">'
-          + '<button class="secondaire" style="width:auto" '
+          + (L.avecDuree
+            ? '<input data-liste-duree="' + L.cle + '" data-i="' + i
+              + '" type="number" min="0" step="5" inputmode="numeric" '
+              + 'style="width:64px;flex:none" value="' + (v.dureeMin || '')
+              + '" title="Minutes estimées sur place">'
+            : '')
+          + '<button class="secondaire" style="width:auto;flex:none" '
           + 'data-suppr-liste="' + L.cle + '.' + i + '">Retirer</button></div>';
       }).join('');
     });
@@ -1657,6 +1748,13 @@
         el.addEventListener('change', function () {
           reglages[el.dataset.liste][+el.dataset.i].libelle = el.value;
           afficherRegles();
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-liste-duree]'), function (el) {
+        el.addEventListener('change', function () {
+          reglages[el.dataset.listeDuree][+el.dataset.i].dureeMin =
+            parseInt(el.value, 10) || 0;
         });
       });
     Array.prototype.forEach.call(
@@ -1685,7 +1783,9 @@
   LISTES.forEach(function (L) {
     $(L.bouton).addEventListener('click', function () {
       reglages[L.cle] = reglages[L.cle] || [];
-      reglages[L.cle].push({ id: window.Billy.uuidv7(), libelle: L.exemple });
+      var item = { id: window.Billy.uuidv7(), libelle: L.exemple };
+      if (L.avecDuree) item.dureeMin = 30;
+      reglages[L.cle].push(item);
       afficherListes();
     });
   });
@@ -2111,7 +2211,7 @@
         + '<div><label>Nombre</label>'
         + '<input type="number" min="1" inputmode="numeric" data-n="' + i
         + '" data-c="quantity" value="' + n.quantity + '"></div></div>'
-        + '<label>Hauteur</label>'
+        + "<label>Type d'intervention</label>"
         + '<select data-n="' + i + '" data-c="heightId">'
         + listeOptions(reglages.hauteurs, n.heightId, 'Non précisée')
         + '</select>'
@@ -2596,6 +2696,21 @@
     return cleJour(new Date(iso)) === cleJour(d);
   }
 
+  /**
+   * « 18:30 » seul si la duree n'est pas connue, « 18:30–19:30 » sinon.
+   * Utilise partout ou un rendez-vous existant s'affiche dans une
+   * liste : l'agenda et l'apercu de la prise de rendez-vous.
+   */
+  function libelleCreneau(it) {
+    var debut = new Date(it.debut_le);
+    var h1 = debut.toLocaleTimeString('fr-CH',
+      { hour: '2-digit', minute: '2-digit' });
+    if (!it.duree_min) return h1;
+    var fin = new Date(debut.getTime() + it.duree_min * 60000);
+    return h1 + '\u2013' + fin.toLocaleTimeString('fr-CH',
+      { hour: '2-digit', minute: '2-digit' });
+  }
+
   function titreJour(d) {
     var aujourdhui = cleJour(new Date());
     if (cleJour(d) === aujourdhui) return "Aujourd'hui";
@@ -2605,8 +2720,131 @@
       { weekday: 'long', day: 'numeric', month: 'long' });
   }
 
+  function titreJour(d) {
+    var aujourdhui = cleJour(new Date());
+    if (cleJour(d) === aujourdhui) return "Aujourd'hui";
+    var demain = new Date(); demain.setDate(demain.getDate() + 1);
+    if (cleJour(d) === cleJour(demain)) return 'Demain';
+    return d.toLocaleDateString('fr-CH',
+      { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
+  /* ============================================================
+     CALENDRIER — un seul composant, partage entre l'Agenda et la
+     prise de rendez-vous.
+
+     Philippe : « il est important d'avoir un apercu sur tous mes
+     rdv pour prendre un autre rdv » — d'ou le MEME calendrier aux
+     deux endroits, plutot que deux vues qui pourraient se
+     contredire.
+     ============================================================ */
+
+  /** Reconstruit une date locale a partir d'une cle AAAA-MM-JJ.
+      `new Date(cle)` la lirait en UTC et decalerait d'un jour selon
+      l'heure locale — le meme piege que `cleJour` evite deja. */
+  function dateDepuisCle(cle) {
+    var p = cle.split('-').map(Number);
+    return new Date(p[0], p[1] - 1, p[2]);
+  }
+
+  /** Le lundi de la semaine de `d` (convention suisse). */
+  function debutSemaine(d) {
+    var j = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    j.setDate(j.getDate() - ((j.getDay() + 6) % 7));
+    return j;
+  }
+
+  /** { 'AAAA-MM-JJ': nombre de rendez-vous planifies ce jour-la }. */
+  function joursAvecRdv() {
+    var s = {};
+    interventions.forEach(function (it) {
+      if (it.statut !== 'planifie') return;
+      var k = cleJour(new Date(it.debut_le));
+      s[k] = (s[k] || 0) + 1;
+    });
+    return s;
+  }
+
+  /** Le mois actuellement affiche par chaque calendrier, par id. */
+  var calendrierAncres = {};
+
+  /**
+   * Dessine un calendrier mensuel dans #idConteneur.
+   *   selectionCle : cle AAAA-MM-JJ en surbrillance, ou ''.
+   *   onChoisir(cle) : appele quand un jour est touche.
+   */
+  function dessinerCalendrier(idConteneur, selectionCle, onChoisir) {
+    var conteneur = $(idConteneur);
+    if (!conteneur) return;
+    if (!calendrierAncres[idConteneur]) {
+      calendrierAncres[idConteneur] =
+        selectionCle ? dateDepuisCle(selectionCle) : new Date();
+    }
+    var ancre = calendrierAncres[idConteneur];
+    var occupes = joursAvecRdv();
+    var auj = cleJour(new Date());
+    var debutGrille = debutSemaine(
+      new Date(ancre.getFullYear(), ancre.getMonth(), 1));
+
+    var h = '<div class="calendrier-entete">'
+      + '<button type="button" class="cal-nav" data-cal-mois="-1">'
+      + '\u2039</button>'
+      + '<span class="mois">' + ancre.toLocaleDateString('fr-CH',
+          { month: 'long', year: 'numeric' }) + '</span>'
+      + '<button type="button" class="cal-nav" data-cal-mois="1">'
+      + '\u203a</button></div>'
+      + '<div class="calendrier-jours">'
+      + ['L', 'M', 'M', 'J', 'V', 'S', 'D']
+          .map(function (l) { return '<span>' + l + '</span>'; }).join('')
+      + '</div><div class="calendrier-grille">';
+
+    for (var i = 0; i < 42; i++) {
+      var jour = new Date(debutGrille);
+      jour.setDate(jour.getDate() + i);
+      var cle = cleJour(jour);
+      var classes = ['jour-cal'];
+      if (jour.getMonth() !== ancre.getMonth()) classes.push('hors-mois');
+      if (cle === auj) classes.push('aujourdhui');
+      if (selectionCle && cle === selectionCle) classes.push('choisi');
+      if (occupes[cle]) classes.push('a-des-rdv');
+      h += '<button type="button" class="' + classes.join(' ')
+        + '" data-cal-jour="' + cle + '">' + jour.getDate()
+        + (occupes[cle] ? '<span class="pastille-rdv"></span>' : '')
+        + '</button>';
+    }
+    h += '</div><button type="button" class="secondaire cal-aujourdhui" '
+      + 'data-cal-today="1">Aujourd\u2019hui</button>';
+    conteneur.innerHTML = h;
+
+    Array.prototype.forEach.call(
+      conteneur.querySelectorAll('[data-cal-mois]'), function (b) {
+        b.addEventListener('click', function () {
+          ancre.setMonth(ancre.getMonth() + Number(b.dataset.calMois));
+          dessinerCalendrier(idConteneur, selectionCle, onChoisir);
+        });
+      });
+    Array.prototype.forEach.call(
+      conteneur.querySelectorAll('[data-cal-jour]'), function (b) {
+        b.addEventListener('click', function () {
+          // Toucher un jour d'un mois voisin recentre le calendrier
+          // dessus : rien ne doit rester choisi hors du cadre visible.
+          calendrierAncres[idConteneur] = dateDepuisCle(b.dataset.calJour);
+          onChoisir(b.dataset.calJour);
+        });
+      });
+    var btnAuj = conteneur.querySelector('[data-cal-today]');
+    if (btnAuj) {
+      btnAuj.addEventListener('click', function () {
+        calendrierAncres[idConteneur] = new Date();
+        onChoisir(cleJour(new Date()));
+      });
+    }
+  }
+
   function afficherAgenda() {
     $('agenda-titre').textContent = titreJour(jourAffiche);
+    dessinerCalendrier('calendrier-agenda', cleJour(jourAffiche),
+      function (cle) { jourAffiche = dateDepuisCle(cle); afficherAgenda(); });
 
     var duJour = interventions.filter(function (it) {
       return it.statut === 'planifie' && memeJour(it.debut_le, jourAffiche);
@@ -2622,10 +2860,9 @@
 
     $('liste-agenda').innerHTML = duJour.map(function (it) {
       var d = it.donnees || {};
-      var h = new Date(it.debut_le).toLocaleTimeString('fr-CH',
-        { hour: '2-digit', minute: '2-digit' });
       return '<div class="carte" data-ouvrir-rdv="' + it.id + '">'
-        + '<strong>' + h + ' · ' + (d.clientNom || 'Client') + '</strong>'
+        + '<strong>' + libelleCreneau(it) + ' · '
+        + (d.clientNom || 'Client') + '</strong>'
         + '<div class="muted">'
         + ((it.adresse || '') + ' ' + (it.npa || '') + ' '
            + (it.localite || '')).trim()
@@ -2772,6 +3009,10 @@
    */
   function estimerPrixRdv() {
     var zone = $('rdv-estimation');
+    // Independant du prix : la duree ne suppose pas d'insecte choisi,
+    // seulement un type d'intervention. Sans cet appel ici, cocher la
+    // hauteur AVANT l'insecte laissait l'estimation vide.
+    afficherDureeRdv();
     if (!zone) return;
 
     if (!rdvChoix.insectes.length) {
@@ -2852,6 +3093,76 @@
     zone.innerHTML = h;
   }
 
+  /*
+    ESTIMATION DES TEMPS — trajet et intervention.
+
+    Ce qui reste HORS de cette premiere version, volontairement :
+    enchainer deux rendez-vous en calculant le trajet CLIENT A CLIENT
+    (plutot que domicile-client) pour proposer une heure de depart.
+    C'est le prochain morceau, plus consequent, a construire des que
+    la facon de choisir le rendez-vous « juste avant/apres » sera
+    validee avec Philippe. En attendant, chaque rendez-vous est
+    estime comme un aller-retour depuis le domicile.
+  */
+
+  function formatDureeMin(min) {
+    if (min < 60) return min + ' min';
+    var h = Math.floor(min / 60), m = min % 60;
+    return h + 'h' + String(m).padStart(2, '0');
+  }
+
+  /**
+   * Somme des durees des types d'intervention coches. Sans aucune
+   * case cochee, aucune estimation n'est risquee : le temps reel peut
+   * varier du simple au triple selon ce qui sera trouve sur place.
+   */
+  function dureeInterventionEstimeeMin() {
+    if (!rdvChoix.hauteurs.length) return null;
+    var total = 0;
+    rdvChoix.hauteurs.forEach(function (id) {
+      var h = (reglages.hauteurs || [])
+        .find(function (x) { return x.id === id; });
+      total += (h && h.dureeMin) || 0;
+    });
+    return total || null;
+  }
+
+  function afficherDureeRdv() {
+    var zone = $('rdv-duree-estimee');
+    if (!zone) return;
+    var dureeInter = dureeInterventionEstimeeMin();
+    var vitesse = (reglages.deplacement && reglages.deplacement.vitesseKmh)
+      || 60;
+    var dureeTrajet = rdvDistanceKm != null
+      ? window.BillySuisse.dureeTrajetMin(rdvDistanceKm, vitesse) : null;
+
+    if (dureeInter == null && dureeTrajet == null) { zone.innerHTML = ''; return; }
+
+    var morceaux = [];
+    if (dureeTrajet != null) {
+      morceaux.push('Trajet aller estimé : ~' + formatDureeMin(dureeTrajet)
+        + ' (' + Math.round(rdvDistanceKm) + ' km)');
+    }
+    if (dureeInter != null) {
+      morceaux.push('Durée sur place estimée : ~' + formatDureeMin(dureeInter));
+    }
+    var h = '<p class="muted">' + morceaux.join(' · ') + '.</p>';
+
+    // L'heure de retour ne s'affiche que si tout est connu : sinon
+    // un horaire a moitie devine ferait plus de mal que de bien.
+    var heureDebut = $('rdv-heure').value;
+    if (heureDebut && $('rdv-date').value
+        && dureeInter != null && dureeTrajet != null) {
+      var d = new Date($('rdv-date').value + 'T' + heureDebut);
+      d.setMinutes(d.getMinutes() + dureeInter + dureeTrajet);
+      h += '<p class="muted">De retour chez vous vers '
+        + String(d.getHours()).padStart(2, '0') + ':'
+        + String(d.getMinutes()).padStart(2, '0')
+        + ' si vous rentrez directement après.</p>';
+    }
+    zone.innerHTML = h;
+  }
+
   /** Distance calculee depuis l'adresse saisie, ou null. */
   var rdvDistanceKm = null;
 
@@ -2923,6 +3234,46 @@
     suisse, et Philippe voit le trajet reel — celui qu'il va conduire —
     pas la ligne droite que nous utilisons pour estimer.
   */
+  /**
+   * Vrai quand Billy tourne en PWA installee (icone sur l'ecran
+   * d'accueil, plein ecran, sans barre Safari) plutot que dans un
+   * onglet Safari ordinaire.
+   */
+  function tourneEnPwaInstallee() {
+    return !!(window.navigator.standalone
+      || (window.matchMedia
+        && window.matchMedia('(display-mode: standalone)').matches));
+  }
+
+  /**
+   * Ouvre une URL vers une autre application (ici : Maps).
+   *
+   * DEFAUT VECU (capture du 18.09) : sur l'iPhone de Philippe, Billy
+   * est installee en PWA. Dans ce mode, `window.open(url, '_blank')`
+   * ouvre l'URL dans un onglet Safari MASQUE a l'interieur de l'app,
+   * qui bascule aussitot vers Maps — mais qui reste ouvert derriere.
+   * Au retour de Maps, cet onglet redevient visible : un ecran blanc
+   * avec juste une croix pour le fermer.
+   *
+   * En PWA installee, on navigue donc dans la fenetre EN COURS
+   * (`location.href`) : iOS intercepte alors le lien comme un lien
+   * universel et bascule directement vers Maps, sans jamais ouvrir
+   * de fenetre intermediaire. Hors PWA (Safari ordinaire, ou les
+   * tests), `window.open` en nouvel onglet reste le bon choix : il
+   * preserve la prise de rendez-vous en cours dans l'onglet Billy.
+   *
+   * Ce qu'un test peut verifier : LEQUEL des deux chemins est choisi.
+   * L'absence reelle de fenetre intermediaire sur un iPhone ne se
+   * verifie qu'a la main — jsdom ne simule pas ce comportement d'iOS.
+   */
+  function ouvrirUrlExterne(url) {
+    if (tourneEnPwaInstallee()) {
+      window.location.href = url;
+    } else {
+      window.open(url, '_blank');
+    }
+  }
+
   function ouvrirItineraire() {
     var e = reglages.entreprise || {};
     var depart = [e.adresse, e.numero, e.npa, e.localite]
@@ -2939,7 +3290,7 @@
     var url = 'https://www.google.com/maps/dir/?api=1'
       + (depart ? '&origin=' + encodeURIComponent(depart + ', Suisse') : '')
       + '&destination=' + encodeURIComponent(arrivee + ', Suisse');
-    window.open(url, '_blank');
+    ouvrirUrlExterne(url);
   }
 
   $('btn-itineraire').addEventListener('click', ouvrirItineraire);
@@ -2948,6 +3299,47 @@
     $(id).addEventListener('change', estimerDistanceRdv);
   });
   $('rdv-nids').addEventListener('input', estimerPrixRdv);
+
+  /**
+   * Ce qui est deja pris ce jour-la, pour ne pas surcharger un
+   * creneau sans le voir. En modification, le rendez-vous en cours
+   * d'edition ne doit pas se compter lui-meme.
+   */
+  function afficherApercuJourRdv(cle) {
+    var conteneur = $('apercu-jour-rdv');
+    if (!conteneur) return;
+    if (!cle) { conteneur.innerHTML = ''; return; }
+    var duJour = interventions.filter(function (it) {
+      return it.statut === 'planifie' && cleJour(new Date(it.debut_le)) === cle
+        && (!rdvEnEdition || it.id !== rdvEnEdition.id);
+    }).sort(function (a, b) {
+      return String(a.debut_le).localeCompare(String(b.debut_le));
+    });
+    if (!duJour.length) {
+      conteneur.innerHTML = '<p class="muted">Aucun autre rendez-vous ce '
+        + 'jour-l\u00e0.</p>';
+      return;
+    }
+    conteneur.innerHTML = '<p class="muted">' + duJour.length
+      + (duJour.length > 1 ? ' rendez-vous' : ' rendez-vous')
+      + ' d\u00e9j\u00e0 pris ce jour-l\u00e0 :</p>'
+      + duJour.map(function (it) {
+        return '<div class="apercu-ligne">' + libelleCreneau(it) + ' · '
+          + ((it.donnees || {}).clientNom || 'Client') + '</div>';
+      }).join('');
+  }
+
+  function rafraichirCalendrierRdv() {
+    var cle = $('rdv-date').value;
+    dessinerCalendrier('calendrier-rdv', cle, function (c) {
+      $('rdv-date').value = c;
+      rafraichirCalendrierRdv();
+    });
+    afficherApercuJourRdv(cle);
+    afficherDureeRdv();
+  }
+
+  $('rdv-date').addEventListener('change', rafraichirCalendrierRdv);
 
   /* ---------- Prise de rendez-vous ---------- */
 
@@ -2985,6 +3377,7 @@
     }
     function synchroniser() {
       $('rdv-heure').value = h.value + ':' + m.value;
+      afficherDureeRdv();
     }
     h.addEventListener('change', synchroniser);
     m.addEventListener('change', synchroniser);
@@ -3079,6 +3472,11 @@
     estimerPrixRdv();
     $('sugg-rdv-nom').innerHTML = '';
     $('sugg-rdv-localite').innerHTML = '';
+    // Le calendrier doit repartir sur le mois du rendez-vous choisi
+    // (aujourd'hui pour un nouveau, le mois d'origine en modification)
+    // et non rester sur celui laisse par une session precedente.
+    delete calendrierAncres['calendrier-rdv'];
+    rafraichirCalendrierRdv();
     montrer('rdv');
   }
 
@@ -3124,7 +3522,11 @@
       // second rendez-vous et l'ancien resterait dans l'agenda.
       id: rdvEnEdition ? rdvEnEdition.id : window.Billy.uuidv7(),
       debut_le: debut.toISOString(),
-      duree_min: 45,
+      // Duree du CRENEAU (le temps sur place, pas le trajet) : estimee
+      // a partir du type d'intervention coche, quand il y en a un.
+      // Sans type coche, 45 min reste une valeur de secours neutre —
+      // c'etait deja la seule valeur possible avant cette estimation.
+      duree_min: dureeInterventionEstimeeMin() || 45,
       statut: 'planifie',
       adresse: $('rdv-adresse').value.trim(),
       npa: $('rdv-npa').value.trim(),
