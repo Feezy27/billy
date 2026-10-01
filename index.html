@@ -5,8 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>BillyPro Suisse</title>
 <link rel="icon" type="image/png" href="favicon.png">
-<!-- Icone quand le site est ajoute a l'ecran d'accueil de l'iPhone. -->
-<link rel="apple-touch-icon" href="logo.png">
+<!--
+  Icone quand le site est ajoute a l'ecran d'accueil de l'iPhone.
+
+  Fichier SEPARE de logo.png (20.09) : l'icone de l'application et le
+  logo imprime sur les factures n'ont aucune raison d'etre la meme
+  image. Une icone doit etre lisible dans un carre de 60 pixels sur
+  un ecran d'accueil ; un logo de facture a d'autres contraintes.
+
+  iOS ne met JAMAIS cette icone a jour tout seul : apres avoir
+  remplace le fichier, il faut supprimer le raccourci de l'ecran
+  d'accueil et le rajouter.
+-->
+<link rel="apple-touch-icon" href="icone-app.png">
 <meta name="apple-mobile-web-app-title" content="BillyPro">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#FAF6EE">

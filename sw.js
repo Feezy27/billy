@@ -21,7 +21,7 @@
 
 // Change ce numero a chaque livraison : il force le nettoyage des
 // anciennes reserves.
-const VERSION = 'billy-2026-09-20a';
+const VERSION = 'billy-2026-09-20b';
 
 const FICHIERS = [
   './',
@@ -32,6 +32,7 @@ const FICHIERS = [
   './depot.js',
   './compta.js',
   './logo.png',
+  './icone-app.png',
   './favicon.png',
 ];
 
