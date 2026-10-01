@@ -238,6 +238,18 @@
     border-bottom:1px solid var(--ligne)}
   .apercu-ligne:last-child{border-bottom:0}
 
+  /*
+    DEFAUT SIGNALE (capture du 20.09) : « + Nouvelle dépense » touchait
+    « Mes dépenses » bord a bord. Meme cause que le bouton Maps corrige
+    le 18.09 : un bouton n'a de marge qu'AU-DESSUS, une section
+    repliable qu'EN DESSOUS — rien entre les deux. La regle porte sur
+    les boutons directs de l'ecran compta plutot que sur ce seul
+    bouton, pour que le prochain ajout ne repose pas le probleme.
+  */
+  /* Mention de reglement, quand la facture est deja payee sur place. */
+  .mention-reglement{border:1px solid var(--ligne);border-radius:10px;
+    padding:12px;margin-top:10px;font-size:14px}
+  #ecran-compta > button{margin-bottom:12px}
   .section{border:1px solid var(--ligne);border-radius:14px;
     margin-bottom:10px;overflow:hidden;background:var(--blanc)}
   .entete-section{width:100%;margin:0;border-radius:0;background:none;
@@ -529,6 +541,8 @@
     -->
     <div class="calendrier" id="calendrier-rdv"></div>
     <div id="apercu-jour-rdv"></div>
+    <div id="enchainement-rdv"></div>
+    <div id="etat-enchainement-rdv"></div>
     <label for="rdv-date">Date</label>
     <input id="rdv-date" type="date">
     <label>Heure</label>
@@ -606,19 +620,42 @@
   <div id="liste-couts"></div>
   <button id="btn-ajouter-cout" class="secondaire">+ Ajouter un coût</button>
 
-  <div class="kicker">Prix convenu</div>
+  <div class="kicker">Rabais</div>
   <div class="carte">
-    <p class="muted">« Sept nids dans une ferme, on dit 900 francs. » Le détail
-      calculé reste affiché, et une ligne montre l'écart.</p>
-    <label for="convenu-total">Total convenu (CHF) — vide = prix calculé</label>
-    <input id="convenu-total" type="number" step="0.05" inputmode="decimal">
-    <label for="convenu-motif">Motif (apparaît sur la facture)</label>
-    <input id="convenu-motif">
+    <p class="muted">« Sept nids dans une ferme, on fait 150 francs de
+      rabais. » Le détail calculé reste affiché, avec une ligne qui montre
+      la remise. Toujours une déduction — jamais une majoration.</p>
+    <label for="rabais-montant">Rabais (CHF) — vide = aucun rabais</label>
+    <input id="rabais-montant" type="number" min="0" step="0.05" inputmode="decimal">
+    <label for="rabais-motif">Motif (apparaît sur la facture)</label>
+    <input id="rabais-motif">
+  </div>
+
+  <div class="carte">
+    <p class="muted">Trajet négocié à part — un forfait rond, un
+      aller-retour offert : indiquez le montant convenu ; sinon les frais
+      de déplacement restent calculés depuis la distance, comme d'habitude.</p>
+    <label for="deplacement-convenu">Frais de déplacement convenus (CHF) —
+      vide = calcul automatique</label>
+    <input id="deplacement-convenu" type="number" step="0.05" inputmode="decimal">
+    <label for="deplacement-convenu-motif">Motif (apparaît sur la facture)</label>
+    <input id="deplacement-convenu-motif">
   </div>
 
   <div class="kicker">Montant</div>
   <div class="carte" id="carte-chiffrage">
     <p class="muted">Renseignez un insecte pour voir le montant.</p>
+  </div>
+
+  <div class="kicker">Mode de règlement</div>
+  <div class="carte">
+    <p class="muted">Comment le client paie. Espèces et TWINT sont encaissés
+      sur place : la facture est alors marquée payée immédiatement, et la
+      comptabilité enregistre l'encaissement le jour même.</p>
+    <div class="groupe-choix">
+      <div class="titre">Réglé par</div>
+      <div class="choix" id="choix-reglement"></div>
+    </div>
   </div>
 
   <div class="kicker">Signature du client</div>
@@ -2284,6 +2321,36 @@
     afficherCouts();
   });
 
+  /* ---------- Mode de reglement (20.09) ---------- */
+
+  /*
+    Choisi sur place, avant de faire signer le client. Le virement est
+    le choix par defaut : c'est le comportement qu'avait l'application
+    avant cette fonctionnalite, et le seul qui ne suppose pas un
+    encaissement immediat.
+  */
+  var reglementSaisi = 'virement';
+
+  function afficherChoixReglement() {
+    var zone = $('choix-reglement');
+    if (!zone) return;
+    zone.innerHTML = window.BillySuisse.MODES_REGLEMENT.map(function (m) {
+      return '<button type="button" data-reglement="' + m.id + '"'
+        + (m.id === reglementSaisi ? ' class="choisi"' : '') + '>'
+        + m.libelle + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(
+      zone.querySelectorAll('[data-reglement]'), function (b) {
+        b.addEventListener('click', function () {
+          // Pas de bascule a vide : une facture a toujours un mode de
+          // reglement, contrairement aux criteres du telephone qu'on
+          // peut laisser en suspens.
+          reglementSaisi = b.dataset.reglement;
+          afficherChoixReglement();
+        });
+      });
+  }
+
   /* ---------- Ce que l'application a deja vu ---------- */
 
   /*
@@ -2650,15 +2717,39 @@
 
     var quand = depot.dateMiroir && depot.dateMiroir();
     var enAttente = depot.enAttente ? depot.enAttente() : 0;
-    var texte = 'Sans réseau — données de la dernière synchronisation';
+    var quandTexte = '';
     if (quand) {
       var d = new Date(quand);
-      texte += ' (' + d.toLocaleDateString('fr-CH') + ' à '
+      quandTexte = ' (' + d.toLocaleDateString('fr-CH') + ' à '
         + d.toLocaleTimeString('fr-CH',
             { hour: '2-digit', minute: '2-digit' }) + ')';
     }
-    texte += '. Vos saisies sont conservées et partiront au retour du '
-      + 'réseau.';
+    var texte;
+    if (depot.serviceInjoignable) {
+      /*
+        DEFAUT SIGNALE (capture du 19.09, message revenu « partout,
+        systematiquement ») : le meme bandeau « Sans reseau » servait
+        aussi quand le TELEPHONE avait du reseau mais que le SERVICE,
+        lui, ne repondait pas — deux problemes tres differents, dont
+        un seul se resout en attendant. La cause la plus frequente
+        d'un service Supabase qui ne repond plus « partout, tout le
+        temps » : le projet gratuit se met en pause tout seul apres
+        une semaine sans utilisation, et ne repart qu'en allant sur
+        supabase.com cliquer sur « Restore/Reprendre ». Aucun nombre
+        de tentatives automatiques n'y changera rien.
+      */
+      texte = 'Le service ne répond pas, alors que votre téléphone a du '
+        + 'réseau' + quandTexte + '. Si cela persiste : ouvrez '
+        + 'supabase.com, projet «\u00a0billypro-suisse\u00a0», et '
+        + 'vérifiez qu\u2019il n\u2019est pas marqué «\u00a0Paused\u00a0» '
+        + '(un projet gratuit se met en pause après une semaine sans '
+        + 'utilisation — il suffit de cliquer sur «\u00a0Restore\u00a0» '
+        + 'pour le relancer). Vos saisies sont conservées.';
+    } else {
+      texte = 'Sans réseau — données de la dernière synchronisation'
+        + quandTexte + '. Vos saisies sont conservées et partiront au '
+        + 'retour du réseau.';
+    }
     if (enAttente) {
       texte += ' ' + enAttente + ' geste'
         + (enAttente > 1 ? 's' : '') + ' en attente d\u2019envoi.';
@@ -2709,6 +2800,46 @@
     var fin = new Date(debut.getTime() + it.duree_min * 60000);
     return h1 + '\u2013' + fin.toLocaleTimeString('fr-CH',
       { hour: '2-digit', minute: '2-digit' });
+  }
+
+  /**
+   * Vrai si un AUTRE rendez-vous du meme jour s'enchaine directement
+   * a la suite de `it` — dans un sens ou dans l'autre :
+   *  - `it` a lui-meme ete pris « juste avant » un autre (it le sait
+   *    par son propre `enchaineSens`) ;
+   *  - ou un autre rendez-vous de `duJour` a ete pris « juste apres »
+   *    `it` (c'est LUI qui le sait, pas `it`).
+   */
+  function aQuelqueChoseJusteApres(it, duJour) {
+    var d = it.donnees || {};
+    if (d.enchaineSens === 'avant' && d.enchaineAvecId) return true;
+    return duJour.some(function (autre) {
+      var a = autre.donnees || {};
+      return autre.id !== it.id && a.enchaineSens === 'apres'
+        && a.enchaineAvecId === it.id;
+    });
+  }
+
+  /**
+   * « Retour prévu vers HH:MM », seulement quand rien ne s'enchaine
+   * juste apres et que la distance domicile-client a ete calculee au
+   * moment de la prise de rendez-vous (les rendez-vous plus anciens,
+   * enregistres avant cette fonctionnalite, n'en ont pas — pas de
+   * retour invente pour eux).
+   */
+  function libelleRetour(it, duJour) {
+    if (aQuelqueChoseJusteApres(it, duJour)) return '';
+    var d = it.donnees || {};
+    if (d.distanceDomicileKm == null) return '';
+    var vitesse = (reglages.deplacement && reglages.deplacement.vitesseKmh)
+      || 60;
+    var trajet = window.BillySuisse.dureeTrajetMin(d.distanceDomicileKm,
+      vitesse);
+    if (!trajet) return '';
+    var fin = new Date(new Date(it.debut_le).getTime()
+      + (it.duree_min || 45) * 60000 + trajet * 60000);
+    return 'Retour prévu vers ' + String(fin.getHours()).padStart(2, '0')
+      + ':' + String(fin.getMinutes()).padStart(2, '0');
   }
 
   function titreJour(d) {
@@ -2860,6 +2991,7 @@
 
     $('liste-agenda').innerHTML = duJour.map(function (it) {
       var d = it.donnees || {};
+      var retour = libelleRetour(it, duJour);
       return '<div class="carte" data-ouvrir-rdv="' + it.id + '">'
         + '<strong>' + libelleCreneau(it) + ' · '
         + (d.clientNom || 'Client') + '</strong>'
@@ -2868,6 +3000,7 @@
            + (it.localite || '')).trim()
         + (d.telephone ? ' · ' + d.telephone : '') + '</div>'
         + (d.note ? '<div class="muted">« ' + d.note + ' »</div>' : '')
+        + (retour ? '<div class="muted">' + retour + '</div>' : '')
         // « Faire l'intervention » ne disait pas a quoi menait le
         // bouton. Cet ecran est deja le recapitulatif du rendez-vous,
         // avec le prix et la signature du client — c'est bien vers la
@@ -3096,13 +3229,9 @@
   /*
     ESTIMATION DES TEMPS — trajet et intervention.
 
-    Ce qui reste HORS de cette premiere version, volontairement :
-    enchainer deux rendez-vous en calculant le trajet CLIENT A CLIENT
-    (plutot que domicile-client) pour proposer une heure de depart.
-    C'est le prochain morceau, plus consequent, a construire des que
-    la facon de choisir le rendez-vous « juste avant/apres » sera
-    validee avec Philippe. En attendant, chaque rendez-vous est
-    estime comme un aller-retour depuis le domicile.
+    Sans enchainement choisi ci-dessous : trajet domicile-client,
+    comme avant. Avec un enchainement : le trajet pertinent devient
+    CLIENT A CLIENT, calcule dans afficherDureeRdv() plus bas.
   */
 
   function formatDureeMin(min) {
@@ -3127,12 +3256,51 @@
     return total || null;
   }
 
+  /*
+    ENCHAINEMENT DE DEUX RENDEZ-VOUS (demande du 19.09).
+
+    { id, sens } ou sens vaut 'apres' (ce rendez-vous suit directement
+    celui designe par id) ou 'avant' (il le precede directement).
+    null : aucun enchainement, le trajet se calcule depuis le
+    domicile — comportement inchange.
+  */
+  var rdvChaine = null;
+  /** Distance CLIENT A CLIENT, calculee seulement si rdvChaine existe. */
+  var rdvDistanceChaineeKm = null;
+
   function afficherDureeRdv() {
     var zone = $('rdv-duree-estimee');
     if (!zone) return;
     var dureeInter = dureeInterventionEstimeeMin();
     var vitesse = (reglages.deplacement && reglages.deplacement.vitesseKmh)
       || 60;
+
+    // Enchaine : le trajet pertinent part du CLIENT precedent, pas du
+    // domicile. Le detail (avec qui, l'heure proposee) est deja dit
+    // par le bloc d'enchainement juste au-dessus — on evite de le
+    // repeter, et on tait le « de retour chez vous » qui induirait en
+    // erreur puisque, precisement, il n'y a pas de retour ici.
+    if (rdvChaine) {
+      var dureeTrajetChaine = rdvDistanceChaineeKm != null
+        ? window.BillySuisse.dureeTrajetMin(rdvDistanceChaineeKm, vitesse)
+        : null;
+      if (dureeInter == null && dureeTrajetChaine == null) {
+        zone.innerHTML = ''; return;
+      }
+      var morceauxC = [];
+      if (dureeTrajetChaine != null) {
+        morceauxC.push('Trajet depuis le rendez-vous précédent estimé : ~'
+          + formatDureeMin(dureeTrajetChaine) + ' ('
+          + Math.round(rdvDistanceChaineeKm) + ' km)');
+      }
+      if (dureeInter != null) {
+        morceauxC.push('Durée sur place estimée : ~'
+          + formatDureeMin(dureeInter));
+      }
+      zone.innerHTML = '<p class="muted">' + morceauxC.join(' · ') + '.</p>';
+      return;
+    }
+
     var dureeTrajet = rdvDistanceKm != null
       ? window.BillySuisse.dureeTrajetMin(rdvDistanceKm, vitesse) : null;
 
@@ -3301,20 +3469,30 @@
   $('rdv-nids').addEventListener('input', estimerPrixRdv);
 
   /**
-   * Ce qui est deja pris ce jour-la, pour ne pas surcharger un
-   * creneau sans le voir. En modification, le rendez-vous en cours
-   * d'edition ne doit pas se compter lui-meme.
+   * Les rendez-vous planifies d'un jour donne (cle AAAA-MM-JJ), triés
+   * par heure. En modification, le rendez-vous en cours d'edition ne
+   * doit jamais se compter lui-meme — ni dans l'apercu, ni parmi les
+   * cibles d'enchainement.
    */
-  function afficherApercuJourRdv(cle) {
-    var conteneur = $('apercu-jour-rdv');
-    if (!conteneur) return;
-    if (!cle) { conteneur.innerHTML = ''; return; }
-    var duJour = interventions.filter(function (it) {
+  function rdvsDuJour(cle) {
+    if (!cle) return [];
+    return interventions.filter(function (it) {
       return it.statut === 'planifie' && cleJour(new Date(it.debut_le)) === cle
         && (!rdvEnEdition || it.id !== rdvEnEdition.id);
     }).sort(function (a, b) {
       return String(a.debut_le).localeCompare(String(b.debut_le));
     });
+  }
+
+  /**
+   * Ce qui est deja pris ce jour-la, pour ne pas surcharger un
+   * creneau sans le voir.
+   */
+  function afficherApercuJourRdv(cle) {
+    var conteneur = $('apercu-jour-rdv');
+    if (!conteneur) return;
+    if (!cle) { conteneur.innerHTML = ''; return; }
+    var duJour = rdvsDuJour(cle);
     if (!duJour.length) {
       conteneur.innerHTML = '<p class="muted">Aucun autre rendez-vous ce '
         + 'jour-l\u00e0.</p>';
@@ -3329,6 +3507,149 @@
       }).join('');
   }
 
+  /*
+    ENCHAINER DEUX RENDEZ-VOUS (demande du 19.09).
+
+    « J'ai rdv a 20km pour un nid a plus de 15m [...] je prend
+    ensuite rdv a 10km d'ici, je choisis donc le creneau suivant [...]
+    on fait 15h00+1h+10min=16h10 ». C'est exactement ce que ce bloc
+    calcule : le trajet CLIENT A CLIENT (pas domicile-client), ajoute
+    a la fin (ou retranche du debut) du rendez-vous choisi, pour
+    proposer une heure — que Philippe peut ensuite annoncer au
+    telephone, ou corriger a la main si besoin.
+
+    Sans aucun enchainement choisi, rien ne change : le trajet reste
+    calcule depuis le domicile, comme avant cette fonctionnalite.
+  */
+
+  function afficherEnchainementRdv(cle) {
+    var zone = $('enchainement-rdv');
+    if (!zone) return;
+    var duJour = rdvsDuJour(cle);
+
+    // Le jour a change : un enchainement choisi pour un autre jour ne
+    // veut plus rien dire.
+    if (rdvChaine && !duJour.some(function (x) { return x.id === rdvChaine.id; })) {
+      rdvChaine = null; rdvDistanceChaineeKm = null;
+    }
+
+    if (!duJour.length) { zone.innerHTML = ''; message('etat-enchainement-rdv', ''); return; }
+
+    function actif(id, sens) {
+      return rdvChaine && rdvChaine.id === id && rdvChaine.sens === sens;
+    }
+
+    zone.innerHTML = '<p class="muted">Enchaîner directement avec un '
+      + 'rendez-vous existant, sans repasser par chez vous :</p>'
+      + duJour.map(function (it) {
+        var nom = (it.donnees || {}).clientNom || 'Client';
+        return '<div class="carte" style="margin-bottom:8px">'
+          + '<strong>' + libelleCreneau(it) + ' · ' + nom + '</strong>'
+          + '<div class="choix" style="margin-top:8px">'
+          + '<button type="button" class="'
+          + (actif(it.id, 'apres') ? 'choisi' : '') + '" data-chaine-id="'
+          + it.id + '" data-chaine-sens="apres">Juste après</button>'
+          + '<button type="button" class="'
+          + (actif(it.id, 'avant') ? 'choisi' : '') + '" data-chaine-id="'
+          + it.id + '" data-chaine-sens="avant">Juste avant</button>'
+          + '</div></div>';
+      }).join('');
+
+    Array.prototype.forEach.call(
+      zone.querySelectorAll('[data-chaine-id]'), function (b) {
+        b.addEventListener('click', function () {
+          var id = b.dataset.chaineId, sens = b.dataset.chaineSens;
+          // Un second appui sur le meme bouton annule l'enchainement —
+          // meme geste que les autres choix a bascule de l'application.
+          rdvChaine = (rdvChaine && rdvChaine.id === id
+            && rdvChaine.sens === sens) ? null : { id: id, sens: sens };
+          appliquerEnchainementRdv(cle);
+        });
+      });
+  }
+
+  /**
+   * Calcule le trajet CLIENT A CLIENT et propose une heure de depart,
+   * une fois qu'un enchainement a ete choisi. Sans enchainement,
+   * remet tout dans l'etat « depuis le domicile » habituel.
+   */
+  function appliquerEnchainementRdv(cle) {
+    afficherEnchainementRdv(cle); // redessine tout de suite le choix
+    if (!rdvChaine) {
+      rdvDistanceChaineeKm = null;
+      message('etat-enchainement-rdv', '');
+      afficherDureeRdv();
+      return;
+    }
+    var ref = interventions.find(function (x) { return x.id === rdvChaine.id; });
+    if (!ref) { rdvChaine = null; return; }
+
+    var arriveeNouveau = [$('rdv-adresse').value.trim(),
+      $('rdv-npa').value.trim(), $('rdv-localite').value.trim()]
+      .filter(Boolean).join(' ');
+    if (!arriveeNouveau) {
+      message('etat-enchainement-rdv', 'Renseignez d\u2019abord l\u2019adresse '
+        + 'du nouveau client.', 'info');
+      return;
+    }
+    var arriveeRef = [ref.adresse, ref.npa, ref.localite]
+      .filter(Boolean).join(' ');
+
+    message('etat-enchainement-rdv', 'Calcul du trajet entre les deux '
+      + 'adresses…', 'info');
+    var f = window.fetch && window.fetch.bind(window);
+    Promise.all([
+      window.BillySuisse.geocoder(arriveeNouveau, f, cacheGeocodage),
+      window.BillySuisse.geocoder(arriveeRef, f, cacheGeocodage),
+    ]).then(function (p) {
+      // Le choix a pu changer pendant l'attente reseau.
+      if (!rdvChaine || rdvChaine.id !== ref.id) return;
+      rdvDistanceChaineeKm = (p[0] && p[1])
+        ? window.BillySuisse.distanceRouteKm(p[1], p[0]) : null;
+      if (rdvDistanceChaineeKm == null) {
+        message('etat-enchainement-rdv', 'Adresse du nouveau client non '
+          + 'reconnue : trajet non calculé.', 'info');
+        afficherDureeRdv();
+        return;
+      }
+      var vitesse = (reglages.deplacement && reglages.deplacement.vitesseKmh)
+        || 60;
+      var trajet = window.BillySuisse.dureeTrajetMin(rdvDistanceChaineeKm,
+        vitesse);
+      var refDebut = new Date(ref.debut_le);
+      var refFin = new Date(refDebut.getTime()
+        + (ref.duree_min || 45) * 60000);
+      var propose;
+      if (rdvChaine.sens === 'apres') {
+        propose = new Date(refFin.getTime() + trajet * 60000);
+      } else {
+        // « Juste avant » : il faut avoir fini ET fait le trajet avant
+        // que l'autre rendez-vous ne commence — donc partir plus tot
+        // d'un temps egal a la propre duree de CETTE intervention.
+        var dureeNouveau = dureeInterventionEstimeeMin() || 45;
+        propose = new Date(refDebut.getTime()
+          - (trajet + dureeNouveau) * 60000);
+      }
+      $('rdv-date').value = cleJour(propose);
+      definirHeureRdv(String(propose.getHours()).padStart(2, '0') + ':'
+        + String(propose.getMinutes()).padStart(2, '0'));
+
+      var nom = (ref.donnees || {}).clientNom || 'ce rendez-vous';
+      var hProposee = String(propose.getHours()).padStart(2, '0') + ':'
+        + String(propose.getMinutes()).padStart(2, '0');
+      message('etat-enchainement-rdv',
+        (rdvChaine.sens === 'apres' ? 'Juste après ' : 'Juste avant ') + nom
+        + ' : trajet estimé ~' + formatDureeMin(trajet) + ' ('
+        + Math.round(rdvDistanceChaineeKm) + ' km). Heure proposée : '
+        + hProposee + '. Modifiable.', 'ok');
+      afficherDureeRdv();
+    }).catch(function () {
+      if (!rdvChaine || rdvChaine.id !== ref.id) return;
+      message('etat-enchainement-rdv', 'Trajet non calculé (hors ligne).',
+        'info');
+    });
+  }
+
   function rafraichirCalendrierRdv() {
     var cle = $('rdv-date').value;
     dessinerCalendrier('calendrier-rdv', cle, function (c) {
@@ -3336,6 +3657,7 @@
       rafraichirCalendrierRdv();
     });
     afficherApercuJourRdv(cle);
+    afficherEnchainementRdv(cle);
     afficherDureeRdv();
   }
 
@@ -3476,6 +3798,10 @@
     // (aujourd'hui pour un nouveau, le mois d'origine en modification)
     // et non rester sur celui laisse par une session precedente.
     delete calendrierAncres['calendrier-rdv'];
+    // Un enchainement choisi lors d'une session precedente ne doit
+    // jamais survivre a l'ouverture d'un AUTRE rendez-vous.
+    rdvChaine = null;
+    rdvDistanceChaineeKm = null;
     rafraichirCalendrierRdv();
     montrer('rdv');
   }
@@ -3542,6 +3868,20 @@
         typesClient: rdvChoix.typesClient.slice(),
         hauteurs: rdvChoix.hauteurs.slice(),
         nidsAnnonces: parseInt($('rdv-nids').value, 10) || 1,
+        /*
+          Enchainement (demande du 19.09) : avec qui, et dans quel
+          sens. Sert plus tard a savoir si ce rendez-vous est deja
+          suivi d'un autre — auquel cas l'agenda ne doit PAS proposer
+          un retour au domicile qui n'aura pas lieu.
+
+          `distanceDomicileKm` est TOUJOURS celle du domicile, meme
+          enchaine : c'est elle, et seulement elle, qui sert a
+          calculer ce retour eventuel — jamais la distance client a
+          client, qui n'a de sens qu'au moment de proposer l'heure.
+        */
+        enchaineAvecId: rdvChaine ? rdvChaine.id : undefined,
+        enchaineSens: rdvChaine ? rdvChaine.sens : undefined,
+        distanceDomicileKm: rdvDistanceKm,
       },
     };
 
@@ -3588,14 +3928,44 @@
     // Le telephone note au telephone (rdv-tel) est repris tel quel :
     // ne pas le redemander sur le terrain.
     $('cli-tel').value = d.telephone || '';
-    ['dist-km', 'convenu-total', 'convenu-motif']
+    ['dist-km', 'rabais-montant', 'rabais-motif',
+     'deplacement-convenu', 'deplacement-convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     // Reprise d'une intervention DEJA saisie : on recharge ce qui a
     // ete note, sinon « Modifier » effacerait tout le travail.
     $('dist-km').value = d.distanceKm == null ? '' : d.distanceKm;
-    if (d.prixConvenu) {
-      $('convenu-total').value = d.prixConvenu.total / 100;
-      $('convenu-motif').value = d.prixConvenu.motif || '';
+    if (d.rabais) {
+      $('rabais-montant').value = d.rabais.montant / 100;
+      $('rabais-motif').value = d.rabais.motif || '';
+    } else if (d.prixConvenu) {
+      /*
+        Intervention enregistree AVANT le passage au rabais (19.09) :
+        elle ne connait qu'un total absolu. On affiche l'equivalent en
+        rabais, calcule contre le prix de base actuel — recalcule au
+        cas ou la grille tarifaire aurait change depuis. Un simple
+        reenregistrement suffit a migrer definitivement cette
+        intervention vers le nouveau champ.
+
+        `typesNotes`/`nidsSaisie` ne sont calcules que plus bas dans
+        cette fonction : on reprend ici la meme logique de repli, en
+        plus court, plutot que de deplacer tout ce bloc.
+      */
+      var typeClientMigration = Array.isArray(d.typesClient)
+        ? d.typesClient[0] : (d.typeClient || 'particulier');
+      var nidsMigration = (d.nids && d.nids.length) ? d.nids
+        : [{ insectId: (Array.isArray(d.insectes) ? d.insectes[0]
+              : d.insecte) || 'guepes', quantity: d.nidsAnnonces || 1 }];
+      var baseActuelle = window.BillySuisse.sousTotalBase(
+        { typeClient: typeClientMigration, nids: nidsMigration }, reglages);
+      var rabaisEquivalent = Math.max(0, baseActuelle - d.prixConvenu.total);
+      if (rabaisEquivalent > 0) {
+        $('rabais-montant').value = rabaisEquivalent / 100;
+        $('rabais-motif').value = d.prixConvenu.motif || '';
+      }
+    }
+    if (d.deplacementConvenu) {
+      $('deplacement-convenu').value = d.deplacementConvenu.montant / 100;
+      $('deplacement-convenu-motif').value = d.deplacementConvenu.motif || '';
     }
     var insectesNotes = Array.isArray(d.insectes) ? d.insectes
       : (d.insecte ? [d.insecte] : []);
@@ -3628,6 +3998,8 @@
         + new Date(d.signeeLe || Date.now()).toLocaleDateString('fr-CH')
         + '.', 'ok');
     } else { signatureConservee = null; }
+    reglementSaisi = d.modeReglement || 'virement';
+    afficherChoixReglement();
     afficherNids();
     afficherCouts();
     rafraichirChiffrage();
@@ -3800,7 +4172,8 @@
   $('btn-nouvelle').addEventListener('click', function () {
     rdvEnCours = null;
     ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'cli-email',
-     'cli-tel', 'dist-km', 'convenu-total', 'convenu-motif']
+     'cli-tel', 'dist-km', 'rabais-montant', 'rabais-motif',
+     'deplacement-convenu', 'deplacement-convenu-motif']
       .forEach(function (i) { $(i).value = ''; });
     nidsSaisie = [nidVide()];
     coutsSaisie = [];
@@ -3808,6 +4181,8 @@
     $('sugg-cli-nom').innerHTML = '';
     $('sugg-cli-localite').innerHTML = '';
     message('etat-distance', '');
+    reglementSaisi = 'virement';
+    afficherChoixReglement();
     afficherNids();
     afficherCouts();
     rafraichirChiffrage();
@@ -3819,7 +4194,8 @@
   });
 
   function interventionDepuisFormulaire() {
-    var convenu = parseFloat($('convenu-total').value);
+    var rabaisMontant = parseFloat($('rabais-montant').value);
+    var deplacementConvenu = parseFloat($('deplacement-convenu').value);
     return {
       clientNom: $('cli-nom').value.trim(),
       npa: $('cli-npa').value.trim(),
@@ -3838,10 +4214,29 @@
       supplementsPonctuels: coutsSaisie.filter(function (c) {
         return c.amount > 0;
       }).map(function (c) { return { label: c.label, amount: c.amount }; }),
-      prixConvenu: !isNaN(convenu) && convenu > 0
-        ? { total: window.Billy.chf(convenu),
-            motif: $('convenu-motif').value.trim() || undefined }
+      /*
+        RABAIS (19.09) : un montant a DEDUIRE, jamais un total a
+        atteindre — Philippe n'a aucun cas ou le prix negocie serait
+        plus eleve que le prix de base. C'est chiffrer() (logique.js)
+        qui calcule le total resultant, contre le prix de base du
+        moment.
+      */
+      rabais: !isNaN(rabaisMontant) && rabaisMontant > 0
+        ? { montant: window.Billy.chf(rabaisMontant),
+            motif: $('rabais-motif').value.trim() || undefined }
         : undefined,
+      // Meme principe que le rabais, mais pour le seul trajet :
+      // un forfait negocie au telephone remplace le calcul automatique
+      // par distance, sans avoir besoin de connaitre ou fausser cette
+      // distance elle-meme.
+      deplacementConvenu: !isNaN(deplacementConvenu) && deplacementConvenu > 0
+        ? { montant: window.Billy.chf(deplacementConvenu),
+            motif: $('deplacement-convenu-motif').value.trim() || undefined }
+        : undefined,
+      // Choisi sur place, avant la signature : decide de la mention
+      // sur la facture, de la presence du QR, et — pour les
+      // encaissements immediats — du compte credite en comptabilite.
+      modeReglement: reglementSaisi,
       signature: signatureActuelle(),
       signeeLe: signatureVide ? undefined : new Date().toISOString(),
     };
@@ -3876,7 +4271,8 @@
     $('carte-chiffrage').innerHTML = h;
   }
 
-  ['dist-km', 'convenu-total', 'convenu-motif',
+  ['dist-km', 'rabais-montant', 'rabais-motif',
+   'deplacement-convenu', 'deplacement-convenu-motif',
    'cli-npa', 'cli-type'].forEach(function (id) {
     $(id).addEventListener('change', rafraichirChiffrage);
     $(id).addEventListener('input', rafraichirChiffrage);
@@ -3989,16 +4385,25 @@
         return;
       }
 
+      var modeR = window.BillySuisse.modeReglement(donnees.modeReglement);
       var ligne = {
         id: window.Billy.uuidv7(), rdv_id: it.id, numero: f.numero,
         annee: new Date().getFullYear(), serie: 'F',
         total_rappen: f.totalRappen, reference_qr: f.reference,
         emise_le: f.emiseLe,
+        /*
+          Especes et TWINT sont encaisses sur place : la facture est
+          donc payee des son emission. Sans cela, elle apparaitrait a
+          tort dans les impayes et dans « A encaisser » de la
+          comptabilite, alors que l'argent est deja la.
+        */
+        payee_le: modeR.immediat ? f.emiseLe : null,
         // La date de l'INTERVENTION (sur place) differe de la date
         // d'EMISSION de la facture — les deux figurent sur le document,
         // sur le modele de la facture papier de Philippe.
         donnees: { lignes: f.lignes, totaux: f.totaux, client: donnees,
-                   dateIntervention: it.debut_le },
+                   dateIntervention: it.debut_le,
+                   modeReglement: modeR.id },
       };
       return depot.enregistrerFacture(ligne).then(function () {
         // La facture EXISTE desormais : visible et retrouvable tout
@@ -4146,12 +4551,26 @@
         + sig + '">';
     }
 
-    var qr = window.BillySuisse.partiePaiementQR(
-      { totalRappen: f.total_rappen, reference: f.reference_qr,
-        numero: f.numero },
-      reglages, d.client, window.SwissQRBill);
-    $('qr-affichage').innerHTML = qr.erreur
-      ? '<div class="alerte">QR-facture : ' + qr.erreur + '</div>' : qr.svg;
+    /*
+      MODE DE REGLEMENT (20.09) : la mention figure sur la facture, et
+      le bulletin QR ne s'affiche que pour un virement. Presenter un
+      QR de paiement sur une facture deja reglee en especes inviterait
+      le client a payer une seconde fois.
+    */
+    var modeR = window.BillySuisse.modeReglement(d.modeReglement);
+    if (modeR.avecQR) {
+      var qr = window.BillySuisse.partiePaiementQR(
+        { totalRappen: f.total_rappen, reference: f.reference_qr,
+          numero: f.numero },
+        reglages, d.client, window.SwissQRBill);
+      $('qr-affichage').innerHTML = (qr.erreur
+        ? '<div class="alerte">QR-facture : ' + qr.erreur + '</div>' : qr.svg);
+    } else {
+      $('qr-affichage').innerHTML = '<p class="mention-reglement"><strong>'
+        + modeR.mention + '</strong> le '
+        + new Date(f.payee_le || f.emise_le).toLocaleDateString('fr-CH')
+        + '. Aucun versement n\u2019est attendu.</p>';
+    }
 
     /*
       Le bouton « Imprimer / enregistrer en PDF » imprime CET ecran :
@@ -4961,10 +5380,43 @@
   $('btn-envoyer-facture').addEventListener('click', function () {
     var f = factureAffichee;
     if (!f) return;
-    var email = ((f.donnees || {}).client || {}).email;
-    var sujet = 'Facture ' + f.numero;
-    var corps = 'Bonjour,\n\nVeuillez trouver ci-joint la facture ' + f.numero
-      + '.\n\nCordialement';
+    var d = f.donnees || {};
+    var client = d.client || {};
+    var entreprise = reglages.entreprise || {};
+    var email = client.email;
+
+    /*
+      Message plus chaleureux et plus etoffe (demande du 19.09) :
+      nommer le client, rappeler l'intervention et l'echeance, dire
+      comment payer, signer avec le nom de l'entreprise et un moyen
+      de contact — plutot que les trois lignes minimales d'avant.
+      La facture elle-meme (le PDF joint) reste inchangee : ce texte
+      est seulement le mot qui l'accompagne dans la messagerie.
+    */
+    var sujet = 'Votre facture ' + f.numero + ' \u2014 '
+      + (entreprise.nom || 'Allô ça pique');
+
+    var salutation = client.clientNom
+      ? 'Bonjour ' + client.clientNom : 'Bonjour';
+    var pourIntervention = d.dateIntervention
+      ? ' pour l\u2019intervention du '
+        + new Date(d.dateIntervention).toLocaleDateString('fr-CH')
+      : '';
+    var montant = window.Billy.formatChf(f.total_rappen) + ' CHF';
+    var delaiJours = (reglages.tva && reglages.tva.delaiJours) || 30;
+    var echeance = new Date(new Date(f.emise_le).getTime()
+      + delaiJours * 86400000).toLocaleDateString('fr-CH');
+
+    var corps = salutation + ',\n\n'
+      + 'Merci encore pour votre confiance' + pourIntervention + '.\n\n'
+      + 'Vous trouverez ci-joint votre facture n\u00b0 ' + f.numero
+      + ', d\u2019un montant de ' + montant + ', payable d\u2019ici au '
+      + echeance + '. Le bulletin de versement QR est inclus dans le '
+      + 'document, pour un paiement en ligne ou au guichet postal.\n\n'
+      + 'N\u2019h\u00e9sitez pas \u00e0 revenir vers nous pour la moindre '
+      + 'question.\n\nBelle journ\u00e9e,\n'
+      + (entreprise.nom || 'Allô ça pique')
+      + (entreprise.telephone ? '\n' + entreprise.telephone : '');
 
     /*
       Le partage natif (plus bas) joint le PDF mais ne peut pas
@@ -5027,10 +5479,28 @@
         return navigator.share({ files: [fichier], title: sujet, text: corps });
       })
       .then(function () {
-        message('etat-facture', email
+        /*
+          DEFAUT SIGNALE (19.09) : l'objet du mail reste vide. Ce
+          n'est pas un defaut de Billy — c'est iOS qui ignore
+          delibrement `title` des qu'un FICHIER est joint au partage
+          (documente : MDN dit du champ title « May be ignored by the
+          target » ; plusieurs rapports independants confirment que
+          Safari + Mail l'ignorent toujours avec une piece jointe,
+          alors que Chrome + Gmail sur Android l'utilise bien comme
+          objet — aucune API ne permet de forcer Apple sur ce point).
+
+          On ne peut copier qu'UNE chose a la fois dans le
+          presse-papiers, et l'adresse — longue, avec faute possible —
+          en a plus besoin que l'objet, court et sans consequence s'il
+          est tape a la main. On affiche donc l'objet en clair, pour
+          qu'il reste a portee sans devoir rouvrir Billy.
+        */
+        message('etat-facture', (email
           ? 'Adresse ' + email + ' copiée : collez-la dans le champ '
-            + '« À » de Mail.'
-          : '', 'info');
+            + '« À » de Mail. '
+          : '')
+          + 'iOS n\u2019ajoute pas l\u2019objet automatiquement avec une '
+          + 'pièce jointe : objet suggéré — ' + sujet, 'info');
       })
       .catch(function (e) {
         // L'utilisateur qui ferme la feuille de partage declenche aussi
@@ -5228,6 +5698,12 @@
                       depotPourTests: function (d) { depot = d; },
                       rafraichirBandeauHorsLigne: function () {
                         afficherBandeauHorsLigne();
+                      },
+                      // Reserve aux tests : redessiner la liste des
+                      // interventions apres y avoir injecte une donnee
+                      // directement dans etat().interventions.
+                      rafraichirInterventions: function () {
+                        afficherInterventions();
                       } };
 
   chargerCacheGeo();

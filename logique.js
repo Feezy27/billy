@@ -251,6 +251,26 @@
           intervention.npa || null, intervention.canton || null,
         );
       }
+      /*
+        Frais de deplacement CONVENUS (meme principe que le prix
+        convenu, mais pour le seul trajet) : « On s'est mis d'accord
+        sur un forfait de 50.- pour la route. » Remplace entierement
+        le calcul automatique — utile aussi quand la distance n'a pas
+        pu etre calculee du tout, puisqu'il ne depend pas d'elle.
+      */
+      if (intervention.deplacementConvenu
+          && intervention.deplacementConvenu.montant > 0) {
+        var motifDep = (intervention.deplacementConvenu.motif || '').trim();
+        // Le moteur de regles prefixe deja ce libelle par
+        // « Frais de deplacement — » (voir le cas normal, par ex.
+        // « ... — 40 km aller-retour x 1.20 CHF/km ») : ne pas repeter
+        // « deplacement » ici, sous peine d'un « Frais de deplacement
+        // — Deplacement convenu » redondant.
+        dep = {
+          amount: intervention.deplacementConvenu.montant,
+          label: motifDep ? 'Convenu \u2014 ' + motifDep : 'Convenu',
+        };
+      }
 
       /*
         Moteur a REGLES, pas le moteur « un prix par insecte ».
@@ -262,22 +282,24 @@
         Aides applicables, calculees a partir du LIEU et des insectes
         traites — pas d'une saisie a la volee.
 
-        Le sous-total sert de base aux aides en pourcentage. On chiffre
-        donc une premiere fois sans aide pour l'obtenir.
+        Le sous-total sert de base aux aides en pourcentage ET au
+        rabais (juste apres) : on chiffre donc une premiere fois sans
+        rien de tout ca, pour obtenir le prix de base.
       */
       var aideParNid = 0;
       var aidesAppliquees = { deducted: [], informational: [] };
       var reglesActives = ordonnerParPrecision(reglages.regles || []);
+      var sousTotalMemo = null;
+
+      function calculerSousTotalBase() {
+        if (sousTotalMemo == null) {
+          sousTotalMemo = sousTotalBase(intervention, reglages);
+        }
+        return sousTotalMemo;
+      }
 
       if ((reglages.aides || []).length) {
-        var sansAide = B.priceInterventionFromRules({
-          customerType: intervention.typeClient || 'particulier',
-          nests: intervention.nids || [],
-          degressivite: reglages.degressivite || undefined,
-        }, reglesActives);
-        var sousTotal = sansAide.reduce(function (t, l) {
-          return t + (l.amount > 0 ? l.amount : 0);
-        }, 0);
+        var sousTotal = calculerSousTotalBase();
 
         aidesAppliquees = B.computeSubsidies(reglages.aides, {
           npa: intervention.npa || null,
@@ -295,6 +317,30 @@
         aideParNid = Math.round(totalDeduit / nbNids);
       }
 
+      /*
+        RABAIS (19.09) — remplace le « prix convenu » cote ecran :
+        Philippe n'imagine aucun cas ou le prix negocie serait PLUS
+        ELEVE que le prix de base, seulement plus bas. Plutot que de
+        saisir un total final (facile a se tromper de sens), il
+        saisit un MONTANT A DEDUIRE — et c'est ce module qui calcule
+        le total resultant.
+
+        Le moteur de regles (moteur-billy.js, jamais modifie ici)
+        n'a toujours qu'un « prix convenu » = un total absolu : le
+        rabais s'y traduit donc en interne, sans jamais etre transmis
+        tel quel. Le libelle sur la facture reste « Prix convenu »
+        (impose par ce moteur) — ce qui reste tout a fait correct a
+        lire, seule la SAISIE change de sens.
+      */
+      var prixConvenuEffectif = intervention.prixConvenu || undefined;
+      if (intervention.rabais && intervention.rabais.montant > 0) {
+        var baseAvantRabais = calculerSousTotalBase();
+        prixConvenuEffectif = {
+          total: Math.max(0, baseAvantRabais - intervention.rabais.montant),
+          motif: intervention.rabais.motif,
+        };
+      }
+
       var lignes = B.priceInterventionFromRules(
         {
           customerType: intervention.typeClient || 'particulier',
@@ -307,7 +353,7 @@
           travelFeeLabel: dep ? dep.label : undefined,
           degressivite: reglages.degressivite || undefined,
           supplementsPonctuels: intervention.supplementsPonctuels || undefined,
-          prixConvenu: intervention.prixConvenu || undefined,
+          prixConvenu: prixConvenuEffectif,
         },
         reglesActives,
       );
@@ -585,6 +631,22 @@
               { width: 160 });
             doc.moveDown(4);
           } catch (errSig) { /* une signature illisible ne bloque pas le PDF */ }
+        }
+
+        /*
+          MODE DE REGLEMENT (20.09) : especes et TWINT sont encaisses
+          sur place. Le PDF porte alors une mention a la place du
+          bulletin QR — un QR sur une facture deja payee inviterait le
+          client a verser une seconde fois.
+        */
+        var modeR = modeReglement((f.donnees || {}).modeReglement);
+        if (!modeR.avecQR) {
+          doc.moveDown(1.5).fontSize(11).fillColor('#000')
+            .text(modeR.mention + ' le '
+              + jour(new Date(f.payee_le || f.emise_le))
+              + '. Aucun versement n\u2019est attendu.');
+          doc.end();
+          return;
         }
 
         var qr = new SwissQRBillPDF.SwissQRBill({
@@ -994,11 +1056,70 @@
       });
   }
 
+  /**
+   * Le sous-total AVANT rabais, aide ou prix convenu : nids,
+   * majorations et degressivite seulement. Exporte pour que l'ecran
+   * puisse convertir un ANCIEN prix convenu (avant l'introduction du
+   * rabais) en montant de rabais equivalent, a l'ouverture d'une
+   * intervention enregistree avant ce changement.
+   */
+  function sousTotalBase(intervention, reglages) {
+    var reglesActives = ordonnerParPrecision(reglages.regles || []);
+    var lignes = B.priceInterventionFromRules({
+      customerType: intervention.typeClient || 'particulier',
+      nests: intervention.nids || [],
+      degressivite: reglages.degressivite || undefined,
+    }, reglesActives);
+    return lignes.reduce(function (t, l) {
+      return t + (l.amount > 0 ? l.amount : 0);
+    }, 0);
+  }
+
+  /*
+    MODES DE REGLEMENT (20.09).
+
+    `compte` : ou l'argent atterrit, cote comptabilite.
+      - especes  -> 1000 Caisse
+      - TWINT    -> 1020 Banque (TWINT verse sur le compte bancaire)
+      - virement -> 1020 Banque, mais PLUS TARD : c'est le seul mode
+                    qui n'est pas encaisse sur place.
+
+    `immediat` : vrai quand l'argent est encaisse au moment meme de
+    l'intervention. La facture est alors marquee payee tout de suite,
+    et la comptabilite enregistre l'encaissement le jour meme — pas
+    d'attente, pas de creance qui traine.
+
+    `avecQR` : seul le virement a besoin du bulletin de versement.
+    Presenter un QR de paiement sur une facture deja reglee en
+    especes inviterait le client a payer une seconde fois.
+  */
+  var MODES_REGLEMENT = [
+    { id: 'especes', libelle: 'Espèces', compte: '1000',
+      immediat: true, avecQR: false,
+      mention: 'Payé en espèces' },
+    { id: 'twint', libelle: 'TWINT', compte: '1020',
+      immediat: true, avecQR: false,
+      mention: 'Payé par TWINT' },
+    { id: 'virement', libelle: 'Virement (QR-facture)', compte: '1020',
+      immediat: false, avecQR: true,
+      mention: 'Payable par virement — bulletin ci-dessous' },
+  ];
+
+  function modeReglement(id) {
+    return MODES_REGLEMENT.filter(function (m) { return m.id === id; })[0]
+      // Sans mode enregistre (factures d'avant le 20.09), le virement
+      // est le comportement historique : QR affiche, paiement attendu.
+      || MODES_REGLEMENT[2];
+  }
+
   global.BillySuisse = {
     ordonnerParPrecision: ordonnerParPrecision,
     volDoiseauKm: volDoiseauKm,
     distanceRouteKm: distanceRouteKm,
     dureeTrajetMin: dureeTrajetMin,
+    sousTotalBase: sousTotalBase,
+    MODES_REGLEMENT: MODES_REGLEMENT,
+    modeReglement: modeReglement,
     geocoder: geocoder,
     construirePdfFacture: construirePdfFacture,
     referenceCreanciere: referenceCreanciere,

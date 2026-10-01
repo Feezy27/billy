@@ -92,6 +92,23 @@
   var COMPTE_PRODUITS = '3400';
   var COMPTE_CAPITAL = '2800';
 
+  /*
+    Ou atterrit l'argent selon le mode de reglement choisi sur place.
+    Volontairement duplique ici plutot qu'importe de logique.js :
+    compta.js doit pouvoir etre relu et verifie seul, et cette table
+    de trois lignes est de celles qu'un fiduciaire voudra controler.
+    Si un mode est ajoute dans logique.js, il doit l'etre ici aussi —
+    un test le verifie.
+  */
+  var MODES_COMPTE = {
+    especes: '1000',   // Caisse
+    twint: '1020',     // Banque
+    virement: '1020',  // Banque
+  };
+  var LIBELLES_MODE = {
+    especes: 'espèces', twint: 'TWINT', virement: 'virement',
+  };
+
   function compta(reglages) {
     var c = (reglages && reglages.comptabilite) || {};
     var base = comptaParDefaut();
@@ -167,8 +184,27 @@
         return;
       }
       if (f.payee_le) {
-        ajouter(f.payee_le, 'Encaissement facture ' + f.numero,
-          reg.comptePaiement, COMPTE_CLIENTS, montant, 'encaissement',
+        /*
+          MODE DE REGLEMENT (20.09) : l'argent n'atterrit pas au meme
+          endroit selon le mode. Des especes vont en CAISSE (1000),
+          un TWINT ou un virement en BANQUE. Sans cette distinction,
+          la caisse resterait eternellement a zero pendant que la
+          banque afficherait de l'argent qui n'y est jamais arrive —
+          et le rapprochement avec le vrai releve bancaire deviendrait
+          impossible.
+
+          Sans mode enregistre (factures d'avant cette date), on garde
+          le compte de paiement general des reglages : le comportement
+          historique, inchange.
+        */
+        var compteEncaissement = reg.comptePaiement;
+        if (d.modeReglement && MODES_COMPTE[d.modeReglement]) {
+          compteEncaissement = MODES_COMPTE[d.modeReglement];
+        }
+        ajouter(f.payee_le, 'Encaissement facture ' + f.numero
+          + (d.modeReglement && LIBELLES_MODE[d.modeReglement]
+            ? ' (' + LIBELLES_MODE[d.modeReglement] + ')' : ''),
+          compteEncaissement, COMPTE_CLIENTS, montant, 'encaissement',
           f.numero);
       }
     });
@@ -316,6 +352,7 @@
 
   global.BillyCompta = {
     planParDefaut: planParDefaut,
+    MODES_COMPTE: MODES_COMPTE,
     comptaParDefaut: comptaParDefaut,
     compta: compta,
     journal: journal,
