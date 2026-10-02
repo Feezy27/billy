@@ -224,6 +224,17 @@
   .cal-nav{width:auto;margin:0;padding:6px 16px;font-size:16px;
     font-weight:800;background:var(--beige-fonce);color:var(--marine);
     border-radius:9px}
+  /*
+    Bouton carre, icone seule (le filtre des factures). `position` et
+    la pastille servent a montrer qu'un filtre est actif SANS rouvrir
+    le panneau pour le verifier.
+  */
+  .btn-icone{flex:0 0 52px;width:52px;padding:0;height:46px;
+    display:flex;align-items:center;justify-content:center;
+    position:relative}
+  .btn-icone.filtre-actif::after{content:'';position:absolute;
+    top:6px;right:6px;width:8px;height:8px;border-radius:50%;
+    background:var(--ambre)}
   .calendrier-jours{display:grid;grid-template-columns:repeat(7,1fr);
     gap:2px;text-align:center;color:var(--brume);font-size:11px;
     font-weight:700;margin-bottom:4px}
@@ -258,6 +269,19 @@
     bouton, pour que le prochain ajout ne repose pas le probleme.
   */
   /* Mention de reglement, quand la facture est deja payee sur place. */
+  /*
+    COMPTABILITE RESERVEE A L'ORDINATEUR (02.10, demande de Philippe).
+    Sur la LARGEUR D'ECRAN, jamais le modele de l'appareil — une
+    tablette ou un petit portable doivent continuer d'y avoir acces.
+    640px : au-dela d'un telephone tenu en main, en-deca d'une tablette
+    ou d'un ordinateur. Pure CSS : reagit tout seul a une rotation ou
+    un redimensionnement de fenetre, sans JS a maintenir.
+  */
+  @media (max-width: 639px) {
+    .compta-pc { display: none !important; }
+    #compta-pc-seulement { display: block !important; }
+  }
+
   .mention-reglement{border:1px solid var(--ligne);border-radius:10px;
     padding:12px;margin-top:10px;font-size:14px}
   #ecran-compta > button{margin-bottom:12px}
@@ -660,13 +684,15 @@
 
   <div class="kicker">Mode de règlement</div>
   <div class="carte">
-    <p class="muted">Comment le client paie. Espèces et TWINT sont encaissés
-      sur place : la facture est alors marquée payée immédiatement, et la
-      comptabilité enregistre l'encaissement le jour même.</p>
+    <p class="muted">À choisir avant de générer la facture. Espèces et TWINT
+      sont encaissés sur place : la facture est alors marquée payée
+      immédiatement, et la comptabilité enregistre l'encaissement le jour
+      même.</p>
     <div class="groupe-choix">
       <div class="titre">Réglé par</div>
       <div class="choix" id="choix-reglement"></div>
     </div>
+    <div id="etat-reglement"></div>
   </div>
 
   <div class="kicker">Signature du client</div>
@@ -701,6 +727,46 @@
   </div>
   <div id="bilan"></div>
   <div id="resume-impayes"></div>
+  <!--
+    TRI DES FACTURES (02.10) : sous le recapitulatif (ce mois / depuis
+    janvier), deux boutons bascule — « Réglées » regroupe payees ET
+    annulees (un dossier clos n'est plus « en attente » de rien) — et
+    un bouton filtre (periode, type de client, insecte), pour isoler
+    une categorie precise dans une liste qui s'allonge avec les mois.
+  -->
+  <div class="rangee" id="tri-factures">
+    <button type="button" class="secondaire" id="btn-tri-reglees">Réglées</button>
+    <button type="button" class="secondaire" id="btn-tri-attente">En attente</button>
+    <button type="button" class="secondaire btn-icone" id="btn-filtre-factures"
+      aria-label="Filtrer les factures">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"
+          fill="currentColor"></polygon>
+      </svg>
+    </button>
+  </div>
+  <div class="carte" id="panneau-filtre-factures" style="display:none">
+    <div class="kicker" style="margin-top:0">Période</div>
+    <div class="choix" id="choix-periode-type"></div>
+    <div id="bloc-periode-jour">
+      <label for="filtre-date">Date</label>
+      <input id="filtre-date" type="date">
+    </div>
+    <div id="bloc-periode-mois" style="display:none">
+      <label for="filtre-mois">Mois</label>
+      <input id="filtre-mois" type="month">
+    </div>
+    <p class="muted" id="resume-periode-filtre"></p>
+
+    <div class="kicker">Type de client</div>
+    <div class="choix" id="choix-filtre-type"></div>
+
+    <div class="kicker">Insecte</div>
+    <div class="choix" id="choix-filtre-insecte"></div>
+
+    <button type="button" class="secondaire" id="btn-reinitialiser-filtre">
+      Réinitialiser les filtres</button>
+  </div>
   <div id="liste-factures"></div>
   <div id="liste-devis" style="display:none"></div>
 </div>
@@ -744,9 +810,29 @@
 -->
 <div id="ecran-compta" class="colonne ecran">
   <h1>Comptabilité</h1>
-  <div id="compta-etat"></div>
 
-  <div class="tuiles" id="compta-tuiles"></div>
+  <!--
+    RESERVE A L'ORDINATEUR (02.10, demande de Philippe) : relire un
+    bilan ou un journal se fait posement, sur un grand ecran — pas
+    entre deux interventions. Seule la SAISIE d'une depense reste sur
+    le telephone : c'est sur le terrain qu'elle a lieu, l'oublier
+    jusqu'au bureau c'est risquer de perdre le justificatif. Le
+    decoupage se fait en CSS pure (voir la regle plus haut dans le
+    fichier), sur la LARGEUR D'ECRAN — pas le modele de l'appareil —
+    pour rester cohérent si Billy s'ouvre un jour sur une tablette ou
+    un petit ordinateur portable, et pour reagir tout seul si la
+    fenetre est redimensionnee, sans code JS a maintenir.
+  -->
+  <div class="carte" id="compta-pc-seulement" style="display:none">
+    <p class="muted"><strong>La comptabilité s'ouvre sur ordinateur.</strong>
+      Relire un bilan ou un journal mérite un grand écran, pas une
+      intervention entre deux rendez-vous. Sur ce téléphone, seule la
+      saisie rapide d'une dépense reste disponible ci-dessous.</p>
+  </div>
+
+  <div id="compta-etat" class="compta-pc"></div>
+
+  <div class="tuiles compta-pc" id="compta-tuiles"></div>
 
   <button id="btn-nouvelle-depense">+ Nouvelle dépense</button>
 
@@ -771,7 +857,7 @@
     <button id="btn-annuler-depense" class="secondaire">Annuler</button>
   </div>
 
-  <div class="section" data-section="c1">
+  <div class="section compta-pc" data-section="c1">
     <button class="entete-section" data-ouvrir="c1">
       <span>Mes dépenses</span><span class="chevron">›</span>
     </button>
@@ -780,7 +866,7 @@
     </div>
   </div>
 
-  <div class="section" data-section="c2">
+  <div class="section compta-pc" data-section="c2">
     <button class="entete-section" data-ouvrir="c2">
       <span>Journal</span><span class="chevron">›</span>
     </button>
@@ -792,7 +878,7 @@
     </div>
   </div>
 
-  <div class="section" data-section="c3">
+  <div class="section compta-pc" data-section="c3">
     <button class="entete-section" data-ouvrir="c3">
       <span>Grand livre</span><span class="chevron">›</span>
     </button>
@@ -802,7 +888,7 @@
     </div>
   </div>
 
-  <div class="section" data-section="c4">
+  <div class="section compta-pc" data-section="c4">
     <button class="entete-section" data-ouvrir="c4">
       <span>Bilan et compte de résultat</span><span class="chevron">›</span>
     </button>
@@ -2340,11 +2426,20 @@
     avant cette fonctionnalite, et le seul qui ne suppose pas un
     encaissement immediat.
   */
-  var reglementSaisi = 'virement';
+  /*
+    AUCUNE PRESELECTION (demande du 01.10) : le virement etait coche
+    d'office, et une facture reglee en especes pouvait donc partir avec
+    un QR de paiement sans que personne ait rien choisi. Le choix est
+    desormais obligatoire avant de generer la facture.
+  */
+  var reglementSaisi = '';
 
   function afficherChoixReglement() {
     var zone = $('choix-reglement');
     if (!zone) return;
+    // Un rappel affiche par la validation ne doit pas survivre au choix
+    // (ni a l'ouverture d'une autre intervention).
+    message('etat-reglement', '');
     zone.innerHTML = window.BillySuisse.MODES_REGLEMENT.map(function (m) {
       return '<button type="button" data-reglement="' + m.id + '"'
         + (m.id === reglementSaisi ? ' class="choisi"' : '') + '>'
@@ -3174,7 +3269,12 @@
     var erreurs = [];
     combos.forEach(function (c) {
       var insecte = c[0], typeClient = c[1] || 'particulier', hauteur = c[2];
-      var r = window.BillySuisse.chiffrer({
+      /*
+        `chiffrerAlternatives` : un seul chiffrage dans le cas normal,
+        PLUSIEURS quand la hauteur choisie est « Ne sais pas si + ou -
+        de 15 m » — que la grille range dans deux tarifs a la fois.
+      */
+      var options = window.BillySuisse.chiffrerAlternatives({
         typeClient: typeClient,
         nids: [{ insectId: insecte, quantity: nids,
                  heightId: hauteur || undefined }],
@@ -3183,15 +3283,18 @@
         distanceKm: rdvDistanceKm,
       }, reglages);
 
-      if (r.erreur) { erreurs.push(r.erreur); return; }
-      // Deux combinaisons peuvent retomber sur la MEME regle (deux
-      // hauteurs couvertes par un seul tarif) : le meme prix ne doit
-      // pas apparaitre deux fois.
-      var cle = r.totaux.total + '|' + r.lignes.map(function (l) {
-        return l.label; }).join('+');
-      if (vus[cle]) return;
-      vus[cle] = true;
-      resultats.push(r);
+      options.forEach(function (o) {
+        var r = o.resultat;
+        if (r.erreur) { erreurs.push(r.erreur); return; }
+        // Deux combinaisons peuvent retomber sur la MEME regle (deux
+        // hauteurs couvertes par un seul tarif) : le meme prix ne doit
+        // pas apparaitre deux fois.
+        var cle = r.totaux.total + '|' + r.lignes.map(function (l) {
+          return l.label; }).join('+');
+        if (vus[cle]) return;
+        vus[cle] = true;
+        resultats.push(r);
+      });
     });
 
     if (!resultats.length) {
@@ -3203,7 +3306,8 @@
     var ambigu = resultats.length > 1;
     var h = ambigu
       ? '<p class="muted">Plusieurs tarifs possibles selon ce qui sera '
-        + 'constaté sur place :</p>' : '';
+        + 'constaté sur place — le bon sera retenu le jour de '
+        + 'l\u2019intervention :</p>' : '';
 
     resultats.forEach(function (r) {
       h += '<div class="carte" style="margin-bottom:8px">';
@@ -4009,7 +4113,7 @@
         + new Date(d.signeeLe || Date.now()).toLocaleDateString('fr-CH')
         + '.', 'ok');
     } else { signatureConservee = null; }
-    reglementSaisi = d.modeReglement || 'virement';
+    reglementSaisi = d.modeReglement || '';
     afficherChoixReglement();
     afficherNids();
     afficherCouts();
@@ -4117,10 +4221,20 @@
   /* ---------- Liste des interventions ---------- */
 
   function afficherInterventions() {
-    // Un rendez-vous planifie n'est pas facturable : il n'a ni nid ni
-    // montant. Il vit dans l'agenda jusqu'a ce qu'il soit fait.
+    /*
+      DEMANDE DU 02.10 : « à facturer » ne doit contenir que ce qui
+      reste a facturer — une intervention deja facturee est consultable
+      dans l'onglet Factures, elle n'a rien a faire ici en double.
+
+      L'intervention reste neanmoins dans `interventions` (jamais
+      supprimee) : c'est l'ENREGISTREMENT source de la facture, et le
+      champ `donnees.facturee` est ce qui distingue « en attente » de
+      « deja traitee ». Seul CET ecran applique le filtre ; les autres
+      lectures de `interventions` (agenda, comptabilite) n'en ont pas
+      besoin et restent inchangees.
+    */
     var faites = interventions.filter(function (it) {
-      return it.statut !== 'planifie';
+      return it.statut !== 'planifie' && !(it.donnees || {}).facturee;
     });
     if (!faites.length) {
       $('liste-interventions').innerHTML =
@@ -4132,34 +4246,17 @@
       var d = it.donnees || it;
       var quand = new Date(it.debut_le || Date.now());
       return '<div class="carte"><strong>' + (d.clientNom || 'Client') + '</strong>'
-        + ' <span class="pastille">' + (d.facturee ? 'Facturée' : 'À facturer')
-        + '</span><div class="muted">' + quand.toLocaleDateString('fr-CH')
+        + ' <span class="pastille">À facturer</span>'
+        + '<div class="muted">' + quand.toLocaleDateString('fr-CH')
         + ' · ' + ((it.npa || '') + ' ' + (it.localite || '')).trim() + '</div>'
-        + (d.facturee
-          ? '<button class="secondaire" data-voir-facture="' + it.id + '">'
-            + 'Voir la facture</button>'
-          : '<button data-facturer="' + it.id + '">Facturer</button>'
-            + '<div class="rangee">'
-            + '<button class="secondaire" data-modifier-it="' + it.id + '">'
-            + 'Modifier</button>'
-            + '<button class="secondaire" data-suppr-it="' + it.id + '">'
-            + 'Supprimer</button></div>')
+        + '<button data-facturer="' + it.id + '">Facturer</button>'
+        + '<div class="rangee">'
+        + '<button class="secondaire" data-modifier-it="' + it.id + '">'
+        + 'Modifier</button>'
+        + '<button class="secondaire" data-suppr-it="' + it.id + '">'
+        + 'Supprimer</button></div>'
         + '</div>';
     }).join('');
-    Array.prototype.forEach.call(
-      document.querySelectorAll('[data-voir-facture]'), function (b) {
-        b.addEventListener('click', function () {
-          var f = factures.find(function (x) {
-            return x.rdv_id === b.dataset.voirFacture;
-          });
-          if (f) { ouvrirFacture(f); return; }
-          // Ecart entre le statut et les donnees reelles : le dire
-          // clairement plutot que de laisser un bouton qui ne fait
-          // rien.
-          alert('Marquée facturée, mais aucune facture correspondante '
-            + 'n\u2019a été retrouvée. Vérifiez l\u2019onglet Factures.');
-        });
-      });
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-facturer]'), function (b) {
         b.addEventListener('click', function () { facturer(b.dataset.facturer); });
@@ -4192,7 +4289,7 @@
     $('sugg-cli-nom').innerHTML = '';
     $('sugg-cli-localite').innerHTML = '';
     message('etat-distance', '');
-    reglementSaisi = 'virement';
+    reglementSaisi = '';
     afficherChoixReglement();
     afficherNids();
     afficherCouts();
@@ -4253,15 +4350,49 @@
     };
   }
 
+  /*
+    TARIF ENCORE INCERTAIN (01.10). Annonce au telephone sans savoir si
+    le nid est a plus ou moins de 15 m ? Le jour J, c'est en mesurant
+    que Philippe tranche. Tant que l'option « Ne sais pas » reste
+    selectionnee, le moteur retiendrait en silence le premier tarif :
+    on l'affiche donc en clair, et on refuse d'emettre un document au
+    prix d'un tarif que personne n'a choisi.
+  */
+  function avertissementTarifIncertain(it) {
+    var alt = window.BillySuisse.chiffrerAlternatives(it, reglages);
+    if (alt.length < 2) return '';
+    return '<div class="alerte"><strong>Tarif à confirmer sur place.</strong> '
+      + 'Le type d\u2019intervention choisi laisse plusieurs tarifs possibles : '
+      + alt.map(function (o) {
+        return (o.regle ? o.regle.label : '') + ' \u2014 '
+          + (o.resultat.erreur ? '?'
+            : window.Billy.formatChf(o.resultat.totaux.total) + ' CHF');
+      }).join(' ; ')
+      + '. Choisissez le type d\u2019intervention réellement constaté '
+      + '(dans « Nids traités ») pour retenir le bon.</div>';
+  }
+
+  /** Vrai (et l'ecran le dit) si un tarif reste a trancher. */
+  function tarifEncoreIncertain(it) {
+    if (!window.BillySuisse.nidsEnDoute(it, reglages).length) return false;
+    rafraichirChiffrage();
+    var carte = $('carte-chiffrage');
+    if (carte && carte.scrollIntoView) {
+      carte.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    return true;
+  }
+
   function rafraichirChiffrage() {
-    var r = window.BillySuisse.chiffrer(
-      interventionDepuisFormulaire(), reglages);
+    var itCourant = interventionDepuisFormulaire();
+    var r = window.BillySuisse.chiffrer(itCourant, reglages);
     if (r.erreur) {
       $('carte-chiffrage').innerHTML =
         '<div class="alerte">' + r.erreur + '</div>';
       return;
     }
-    var h = r.lignes.map(function (l) {
+    var h = avertissementTarifIncertain(itCourant);
+    h += r.lignes.map(function (l) {
       return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
         + window.Billy.formatChf(l.amount) + '</span></div>';
     }).join('');
@@ -4295,6 +4426,16 @@
       message('carte-chiffrage', 'Le nom du client est nécessaire.');
       return;
     }
+    if (!it.modeReglement) {
+      message('etat-reglement', 'Choisissez le mode de règlement avant de '
+        + 'générer la facture.', 'alerte');
+      var zoneRegl = $('choix-reglement');
+      if (zoneRegl && zoneRegl.scrollIntoView) {
+        zoneRegl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+    if (tarifEncoreIncertain(it)) return;
     // Si l'intervention vient d'un rendez-vous, on MET A JOUR ce
     // rendez-vous au lieu d'en creer un second : sinon il resterait
     // planifie pour toujours dans l'agenda.
@@ -4450,14 +4591,165 @@
     });
   }
 
+  /*
+    TRI ET FILTRE DES FACTURES (02.10).
+
+    `statut` : 'reglees' (payee OU annulee — un dossier clos n'attend
+    plus rien) | 'attente' (ni l'un ni l'autre) | null (toutes).
+    Le reste n'affine qu'une PERIODE et deux CRITERES, tous combinables
+    entre eux et avec le statut.
+  */
+  var filtreFactures = { statut: null, periodeType: null, date: '',
+    mois: '', typeClient: null, insecte: null };
+
+  function moisCle(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function factureDansPeriode(f) {
+    if (!filtreFactures.periodeType) return true;
+    var d = new Date(f.emise_le);
+    if (filtreFactures.periodeType === 'mois') {
+      return !filtreFactures.mois || moisCle(d) === filtreFactures.mois;
+    }
+    if (!filtreFactures.date) return true;
+    if (filtreFactures.periodeType === 'jour') {
+      return cleJour(d) === filtreFactures.date;
+    }
+    // Semaine : du lundi au dimanche qui contient le jour choisi.
+    var lundi = debutSemaine(dateDepuisCle(filtreFactures.date));
+    var dimanche = new Date(lundi); dimanche.setDate(dimanche.getDate() + 6);
+    var cle = cleJour(d);
+    return cle >= cleJour(lundi) && cle <= cleJour(dimanche);
+  }
+
+  function facturesFiltrees() {
+    return lesFactures().filter(function (f) {
+      var annulee = (f.donnees || {}).annulee;
+      var reglee = !!(f.payee_le || annulee);
+      if (filtreFactures.statut === 'reglees' && !reglee) return false;
+      if (filtreFactures.statut === 'attente' && reglee) return false;
+      if (!factureDansPeriode(f)) return false;
+      var d = (f.donnees && f.donnees.client) || {};
+      if (filtreFactures.typeClient
+        && d.typeClient !== filtreFactures.typeClient) return false;
+      if (filtreFactures.insecte && !(d.nids || []).some(function (n) {
+        return n.insectId === filtreFactures.insecte;
+      })) return false;
+      return true;
+    });
+  }
+
+  /** Un groupe de boutons a choix unique, qui bascule off au second appui. */
+  function choixUnique(zoneId, items, valeurCourante, onChoisir) {
+    var zone = $(zoneId);
+    if (!zone) return;
+    zone.innerHTML = items.map(function (it) {
+      return '<button type="button" class="'
+        + (it.id === valeurCourante ? 'choisi' : '') + '" data-v="'
+        + it.id + '">' + it.libelle + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(zone.querySelectorAll('[data-v]'),
+      function (b) {
+        b.addEventListener('click', function () {
+          onChoisir(b.dataset.v === valeurCourante ? null : b.dataset.v);
+        });
+      });
+  }
+
+  function afficherPanneauFiltre() {
+    choixUnique('choix-periode-type', [
+      { id: 'jour', libelle: 'Jour précis' },
+      { id: 'semaine', libelle: 'Semaine' },
+      { id: 'mois', libelle: 'Mois' },
+    ], filtreFactures.periodeType, function (v) {
+      filtreFactures.periodeType = v;
+      if (!v) { filtreFactures.date = ''; filtreFactures.mois = ''; }
+      afficherPanneauFiltre();
+      afficherFactures();
+    });
+
+    var surMois = filtreFactures.periodeType === 'mois';
+    $('bloc-periode-jour').style.display =
+      (filtreFactures.periodeType && !surMois) ? 'block' : 'none';
+    $('bloc-periode-mois').style.display = surMois ? 'block' : 'none';
+    $('filtre-date').value = filtreFactures.date;
+    $('filtre-mois').value = filtreFactures.mois;
+
+    var resume = '';
+    if (filtreFactures.periodeType === 'semaine' && filtreFactures.date) {
+      var lundi = debutSemaine(dateDepuisCle(filtreFactures.date));
+      var dimanche = new Date(lundi); dimanche.setDate(dimanche.getDate() + 6);
+      resume = 'Semaine du ' + lundi.toLocaleDateString('fr-CH') + ' au '
+        + dimanche.toLocaleDateString('fr-CH') + '.';
+    }
+    $('resume-periode-filtre').textContent = resume;
+
+    choixUnique('choix-filtre-type', reglages.typesClient || [],
+      filtreFactures.typeClient, function (v) {
+        filtreFactures.typeClient = v; afficherPanneauFiltre();
+        afficherFactures();
+      });
+    choixUnique('choix-filtre-insecte', reglages.insectes || [],
+      filtreFactures.insecte, function (v) {
+        filtreFactures.insecte = v; afficherPanneauFiltre();
+        afficherFactures();
+      });
+  }
+
+  function afficherTriFactures() {
+    $('btn-tri-reglees').classList.toggle('choisi',
+      filtreFactures.statut === 'reglees');
+    $('btn-tri-attente').classList.toggle('choisi',
+      filtreFactures.statut === 'attente');
+    $('btn-filtre-factures').classList.toggle('filtre-actif',
+      !!(filtreFactures.periodeType || filtreFactures.typeClient
+        || filtreFactures.insecte));
+  }
+
+  $('btn-tri-reglees').addEventListener('click', function () {
+    filtreFactures.statut =
+      filtreFactures.statut === 'reglees' ? null : 'reglees';
+    afficherFactures();
+  });
+  $('btn-tri-attente').addEventListener('click', function () {
+    filtreFactures.statut =
+      filtreFactures.statut === 'attente' ? null : 'attente';
+    afficherFactures();
+  });
+  $('btn-filtre-factures').addEventListener('click', function () {
+    var ouvert = $('panneau-filtre-factures').style.display !== 'none';
+    $('panneau-filtre-factures').style.display = ouvert ? 'none' : 'block';
+    if (!ouvert) afficherPanneauFiltre();
+  });
+  $('filtre-date').addEventListener('change', function () {
+    filtreFactures.date = $('filtre-date').value;
+    afficherPanneauFiltre();
+    afficherFactures();
+  });
+  $('filtre-mois').addEventListener('change', function () {
+    filtreFactures.mois = $('filtre-mois').value;
+    afficherFactures();
+  });
+  $('btn-reinitialiser-filtre').addEventListener('click', function () {
+    filtreFactures = { statut: filtreFactures.statut, periodeType: null,
+      date: '', mois: '', typeClient: null, insecte: null };
+    afficherPanneauFiltre();
+    afficherFactures();
+  });
+
   function afficherFactures() {
     afficherDevis();
     afficherBilan();
     afficherImpayes();
-    var liste = lesFactures();
+    afficherTriFactures();
+    var toutes = lesFactures();
+    var liste = facturesFiltrees();
     if (!liste.length) {
-      $('liste-factures').innerHTML =
-        '<div class="carte"><p class="muted">Aucune facture.</p></div>';
+      $('liste-factures').innerHTML = '<div class="carte"><p class="muted">'
+        + (toutes.length ? 'Aucune facture pour ces critères.'
+          : 'Aucune facture.')
+        + '</p></div>';
       return;
     }
     $('liste-factures').innerHTML = liste.map(function (f) {
@@ -5418,16 +5710,38 @@
     var echeance = new Date(new Date(f.emise_le).getTime()
       + delaiJours * 86400000).toLocaleDateString('fr-CH');
 
-    var corps = salutation + ',\n\n'
-      + 'Merci encore pour votre confiance' + pourIntervention + '.\n\n'
+    /*
+      DEFAUT SIGNALE (01.10, capture a l'appui) : les sauts de ligne de
+      ce texte disparaissaient a l'arrivee dans Mail — tout ressortait
+      en un seul paragraphe, separes par un simple espace. Cause
+      probable : le partage natif (ligne plus bas) fait transiter ce
+      texte par l'extension de partage de Mail, qui semble normaliser
+      les blancs comme le ferait une page web — un `\n` seul y vaut
+      un espace, pas un saut de ligne.
+
+      `\r\n` (retour chariot + saut de ligne) est la forme que la
+      norme du courrier electronique exige pour un VRAI saut de ligne
+      dans un corps de message (RFC 5322/6068) — par opposition au
+      `\n` seul, qui n'est qu'une convention des fichiers texte
+      Unix/JS. Ce n'est pas garanti de resoudre le defaut sur
+      l'extension de partage d'iOS (non verifiable sans un iPhone
+      sous la main), mais c'est la forme correcte dans tous les cas —
+      et c'est elle, deja, que prend le lien « mailto: » plus bas :
+      aucune regression possible, un essai qui ne peut pas nuire.
+    */
+    var SAUT = '\r\n';
+    var corps = salutation + ',' + SAUT + SAUT
+      + 'Merci encore pour votre confiance' + pourIntervention + '.'
+      + SAUT + SAUT
       + 'Vous trouverez ci-joint votre facture n\u00b0 ' + f.numero
       + ', d\u2019un montant de ' + montant + ', payable d\u2019ici au '
       + echeance + '. Le bulletin de versement QR est inclus dans le '
-      + 'document, pour un paiement en ligne ou au guichet postal.\n\n'
+      + 'document, pour un paiement en ligne ou au guichet postal.'
+      + SAUT + SAUT
       + 'N\u2019h\u00e9sitez pas \u00e0 revenir vers nous pour la moindre '
-      + 'question.\n\nBelle journ\u00e9e,\n'
+      + 'question.' + SAUT + SAUT + 'Belle journ\u00e9e,' + SAUT
       + (entreprise.nom || 'Allô ça pique')
-      + (entreprise.telephone ? '\n' + entreprise.telephone : '');
+      + (entreprise.telephone ? SAUT + entreprise.telephone : '');
 
     /*
       Le partage natif (plus bas) joint le PDF mais ne peut pas
@@ -5549,6 +5863,7 @@
       message('carte-chiffrage', 'Le nom du client est nécessaire.');
       return;
     }
+    if (tarifEncoreIncertain(it)) return;
     depot.prochainNumeroFacture('D').then(function (numero) {
       var d = window.BillySuisse.preparerDevis(it, reglages, numero);
       if (d.erreur) { window.alert(d.erreur); return; }

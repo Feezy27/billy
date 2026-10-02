@@ -1112,12 +1112,123 @@
       || MODES_REGLEMENT[2];
   }
 
+  /*
+    TARIFS EN CONCURRENCE (01.10) — « Ne sais pas si + ou - de 15 m ».
+
+    Au telephone, Philippe ne sait pas toujours si le nid est a plus ou
+    moins de 15 m. Sa grille le dit deja : l'option « Ne sais pas »
+    figure dans DEUX regles a la fois (jusqu'a 15 m : 250.-, au-dela :
+    350.-). Mais le moteur, a precision egale, retient en silence la
+    PREMIERE : le client s'entendait annoncer 250.- alors que 350.-
+    etait tout aussi possible.
+
+    Une valeur est « en doute » quand plusieurs regles de meme
+    precision la listent, chacune couvrant en plus des hauteurs que
+    l'autre ne couvre pas. Cette signature est volontairement etroite :
+    deux regles qui listent EXACTEMENT les memes hauteurs (departagees
+    a la main par les fleches de la grille) ne sont pas un doute, et
+    le comportement actuel reste inchange pour elles.
+
+    Le moteur de regles (moteur-billy.js) n'est pas modifie : on
+    teste la correspondance regle par regle avec ses propres fonctions,
+    puis on force chaque regle candidate par `chosenRuleId`, que le
+    moteur sait deja honorer.
+  */
+  function precisionRegle(r) {
+    return (r.conditions || []).filter(function (c) {
+      return (c.valeurs || []).length > 0;
+    }).length;
+  }
+
+  function hauteursDeLaRegle(r) {
+    var out = [];
+    (r.conditions || []).forEach(function (c) {
+      if (c.critere !== 'hauteur') return;
+      (c.valeurs || []).forEach(function (v) {
+        if (out.indexOf(v) < 0) out.push(v);
+      });
+    });
+    return out;
+  }
+
+  /** Les regles entre lesquelles un nid hesite ; [] s'il n'y a pas de doute. */
+  function reglesEnConcurrence(nid, intervention, reglages) {
+    var v = nid && nid.heightId;
+    if (!v) return [];
+    var matchantes = ordonnerParPrecision(reglages.regles || [])
+      .filter(function (r) {
+        try {
+          B.priceInterventionFromRules({
+            customerType: intervention.typeClient || 'particulier',
+            nests: [nid],
+            dureeMin: intervention.dureeMin,
+            distanceKm: intervention.distanceKm == null
+              ? undefined : intervention.distanceKm,
+          }, [Object.assign({}, r, { sort: 0 })]);
+          return true;
+        } catch (e) { return false; }
+      });
+    if (matchantes.length < 2) return [];
+
+    var gagnante = matchantes[0];
+    var hG = hauteursDeLaRegle(gagnante);
+    if (hG.indexOf(v) < 0) return [];
+    var pG = precisionRegle(gagnante);
+
+    var autres = matchantes.slice(1).filter(function (r) {
+      if (precisionRegle(r) !== pG) return false;
+      var hR = hauteursDeLaRegle(r);
+      if (hR.indexOf(v) < 0) return false;
+      var seulementR = hR.filter(function (x) { return hG.indexOf(x) < 0; });
+      var seulementG = hG.filter(function (x) { return hR.indexOf(x) < 0; });
+      return seulementR.length > 0 && seulementG.length > 0;
+    });
+    return autres.length ? [gagnante].concat(autres) : [];
+  }
+
+  /** Indices des nids dont le tarif depend d'une hauteur encore incertaine. */
+  function nidsEnDoute(intervention, reglages) {
+    var out = [];
+    (intervention.nids || []).forEach(function (n, i) {
+      if (reglesEnConcurrence(n, intervention, reglages).length) out.push(i);
+    });
+    return out;
+  }
+
+  /**
+   * Un chiffrage par tarif possible : [{ regle, resultat }].
+   * Sans doute, un seul element (regle: null) — exactement
+   * chiffrer(). Seul le PREMIER nid en doute est decline : au
+   * telephone Philippe n'en note qu'un.
+   */
+  function chiffrerAlternatives(intervention, reglages) {
+    var nids = intervention.nids || [];
+    for (var i = 0; i < nids.length; i++) {
+      var concurrentes = reglesEnConcurrence(nids[i], intervention, reglages);
+      if (!concurrentes.length) continue;
+      return concurrentes.map(function (regle) {
+        var forces = nids.map(function (n, j) {
+          return j === i ? Object.assign({}, n, { chosenRuleId: regle.id }) : n;
+        });
+        return {
+          regle: { id: regle.id, label: regle.label },
+          resultat: chiffrer(
+            Object.assign({}, intervention, { nids: forces }), reglages),
+        };
+      });
+    }
+    return [{ regle: null, resultat: chiffrer(intervention, reglages) }];
+  }
+
   global.BillySuisse = {
     ordonnerParPrecision: ordonnerParPrecision,
     volDoiseauKm: volDoiseauKm,
     distanceRouteKm: distanceRouteKm,
     dureeTrajetMin: dureeTrajetMin,
     sousTotalBase: sousTotalBase,
+    reglesEnConcurrence: reglesEnConcurrence,
+    nidsEnDoute: nidsEnDoute,
+    chiffrerAlternatives: chiffrerAlternatives,
     MODES_REGLEMENT: MODES_REGLEMENT,
     modeReglement: modeReglement,
     geocoder: geocoder,
