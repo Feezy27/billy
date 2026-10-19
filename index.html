@@ -155,27 +155,31 @@
     qui rend cette valeur exploitable.
   */
   /*
-    THEME CLAIR : la barre du bas passe en bleu marine. C'est le seul
-    grand aplat sombre de l'ecran — on la repere d'un coup d'oeil, et
-    l'onglet actif, en ambre, y ressort nettement.
+    BARRE D'ONGLETS (19.10). Philippe : « de petits boutons poses sur un
+    bandeau bleu marine, on ne dirait pas un vrai menu ». C'est donc
+    maintenant une vraie barre d'onglets, comme dans les applications
+    iPhone : fond clair d'un seul tenant, fine ligne en haut, cinq zones
+    de meme largeur, chacune avec une icone au-dessus de son intitule.
+    L'onglet actif se reconnait a trois signes (jamais a la seule
+    couleur) : icone et texte marine plus gras, et un trait ambre en haut.
   */
-  nav{position:fixed;bottom:0;left:0;right:0;background:var(--marine);
-    border-top:1px solid var(--marine);display:flex;justify-content:center;
-    padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
-  nav .inner{display:flex;gap:5px;max-width:620px;width:100%}
-  /*
-    CINQ onglets depuis l'ajout de la comptabilite. Sur un iPhone de
-    390 px, cinq boutons a 13 px coupaient « À facturer » en deux
-    lignes : on descend d'un point et on resserre les marges
-    interieures plutot que de raccourcir les mots — un intitule
-    tronque se comprend moins bien qu'un texte un peu plus petit.
-  */
-  nav button{flex:1;background:#262C3D;color:var(--beige);
-    border:1px solid #3A4155;margin:0;padding:11px 2px;
-    font-size:12px;font-weight:700;border-radius:11px;
-    line-height:1.15;white-space:nowrap}
-  nav button.actif{background:var(--ambre-vif);color:var(--marine);
-    border-color:var(--ambre)}
+  nav{position:fixed;bottom:0;left:0;right:0;background:var(--blanc);
+    border-top:1px solid var(--ligne);box-shadow:0 -2px 10px rgba(26,31,46,.06);
+    display:flex;justify-content:center;
+    padding:0 6px env(safe-area-inset-bottom)}
+  nav .inner{display:flex;max-width:620px;width:100%}
+  nav button{flex:1;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:3px;position:relative;
+    background:transparent;color:var(--brume);
+    border:1px solid transparent;margin:0;padding:9px 2px 8px;
+    font-size:11px;font-weight:600;border-radius:0;
+    line-height:1.1;white-space:nowrap}
+  nav button svg{width:24px;height:24px;fill:none;stroke:currentColor;
+    stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  nav button.actif{color:var(--marine);font-weight:800;
+    border-color:transparent}
+  nav button.actif::before{content:"";position:absolute;top:-1px;left:22%;
+    right:22%;height:3px;border-radius:0 0 3px 3px;background:var(--ambre)}
   /* ---------- Comptabilite ---------- */
   /*
     Les tuiles du tableau de bord. Deux par ligne sur un telephone :
@@ -789,7 +793,7 @@
     <div class="carte" id="facture-detail"></div>
     <div class="carte" id="qr-affichage"></div>
   </div>
-  <button id="btn-imprimer">Imprimer / enregistrer en PDF</button>
+  <button id="btn-imprimer">Enregistrer / imprimer en PDF</button>
   <button id="btn-envoyer-facture" class="secondaire">Envoyer par e-mail</button>
   <button id="btn-payee" class="secondaire">Marquer comme payée</button>
   <div id="etat-facture"></div>
@@ -1175,11 +1179,11 @@
 </div>
 
 <nav id="barre" style="display:none"><div class="inner">
-  <button data-ecran="agenda">Agenda</button>
-  <button data-ecran="interventions">À facturer</button>
-  <button data-ecran="factures">Factures</button>
-  <button data-ecran="compta">Compta</button>
-  <button data-ecran="reglages">Réglages</button>
+  <button data-ecran="agenda"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>Agenda</span></button>
+  <button data-ecran="interventions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h8l4 4v13H7z"/><path d="M15 3.5v4h4M10 13h6M10 16.5h4"/></svg><span>À facturer</span></button>
+  <button data-ecran="factures"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-3-2-3 2-3-2-3 2z"/><path d="M9.5 8.5h5M9.5 12h5"/></svg><span>Factures</span></button>
+  <button data-ecran="compta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20.5h16M7 17v-5M12 17V7M17 17v-8"/></svg><span>Compta</span></button>
+  <button data-ecran="reglages"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4 18 18M18 6l-1.6 1.6M7.6 16.4 6 18"/></svg><span>Réglages</span></button>
 </div></nav>
 
 <script>
@@ -5863,7 +5867,60 @@
   $('btn-retour-factures').addEventListener('click', function () {
     montrer('factures');
   });
-  $('btn-imprimer').addEventListener('click', function () { window.print(); });
+  /*
+    ENREGISTRER / IMPRIMER LE PDF (19.10). DEFAUT : le bouton ne faisait
+    rien sur l'iPhone. Il appelait `window.print()`, que Safari ignore
+    dans une application installee sur l'ecran d'accueil.
+
+    On produit desormais le VRAI PDF de la facture (celui-la meme qui
+    part par e-mail) et on le confie a la feuille de partage de
+    l'iPhone, qui propose « Enregistrer dans Fichiers », « Imprimer »,
+    AirDrop, etc. Sans partage de fichiers (ordinateur), le PDF est
+    telecharge. En dernier recours seulement, l'ancienne impression.
+  */
+  function pdfDeLaFacture(f) {
+    return Promise.all([chargerOutilsPdf(), logoPourPdf()]).then(function (r) {
+      return window.BillySuisse.construirePdfFacture(
+        f, reglages, window.PDFDocument, window.SwissQRBillPDF, r[1]);
+    });
+  }
+
+  function telechargerPdf(nom, blob) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = nom;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+
+  $('btn-imprimer').addEventListener('click', function () {
+    var f = factureAffichee;
+    if (!f) return;
+    var bouton = $('btn-imprimer');
+    bouton.disabled = true;
+    message('etat-facture', 'Préparation du PDF…', 'info');
+    pdfDeLaFacture(f).then(function (blob) {
+      var nom = 'Facture-' + f.numero + '.pdf';
+      var fichier = new File([blob], nom, { type: 'application/pdf' });
+      if (typeof navigator.share === 'function'
+        && typeof navigator.canShare === 'function'
+        && navigator.canShare({ files: [fichier] })) {
+        return navigator.share({ files: [fichier] }).then(function () {
+          message('etat-facture', '');
+        });
+      }
+      telechargerPdf(nom, blob);
+      message('etat-facture', 'PDF téléchargé : ' + nom, 'ok');
+    }).catch(function (e) {
+      // Fermer la feuille de partage n'est pas un echec.
+      if (e && e.name === 'AbortError') { message('etat-facture', ''); return; }
+      message('etat-facture', 'PDF impossible (' + (e && e.message || e)
+        + '). Ouverture de l\u2019impression classique.', 'info');
+      window.print();
+    }).then(function () { bouton.disabled = false; });
+  });
 
   /*
     ENVOYER LA FACTURE — ce qu'un site web peut et ne peut pas faire.
@@ -6016,7 +6073,7 @@
       if (raison) {
         message('etat-facture', raison
           + ' Ouverture de la messagerie — pensez à joindre le PDF '
-          + '(bouton « Imprimer / enregistrer en PDF ») avant d\u2019envoyer.',
+          + '(bouton « Enregistrer / imprimer en PDF ») avant d\u2019envoyer.',
           'info');
       }
       window.open('mailto:' + encodeURIComponent(email)
@@ -6252,6 +6309,7 @@
     });
 
   window.BillyApp = { demarrer: demarrer, montrer: montrer,
+                      ouvrirFacture: ouvrirFacture,
                       bilan: bilan,
                       extraitComptable: extraitComptable,
                       versCsv: versCsv,
