@@ -682,6 +682,16 @@
     <p class="muted">Renseignez un insecte pour voir le montant.</p>
   </div>
 
+  <div class="kicker">Numéro de facture</div>
+  <div class="carte">
+    <p class="muted">Laissez vide pour le numéro automatique. Saisissez
+      un chiffre (par exemple 19) pour imposer le numéro de cette facture :
+      les suivantes continueront à partir du plus grand numéro existant.</p>
+    <input id="num-facture" type="number" min="1" step="1" inputmode="numeric"
+      placeholder="Automatique">
+    <div id="etat-num-facture"></div>
+  </div>
+
   <div class="kicker">Mode de règlement</div>
   <div class="carte">
     <p class="muted">À choisir avant de générer la facture. Espèces et TWINT
@@ -3078,6 +3088,20 @@
     }
   }
 
+  function adresseRdv(it) {
+    return [(it.adresse || '').trim(), (it.npa || '').trim(),
+      (it.localite || '').trim()].filter(Boolean).join(' ');
+  }
+
+  function ouvrirMapsRdv(id) {
+    var it = interventions.find(function (x) { return x.id === id; });
+    var arrivee = it ? adresseRdv(it) : '';
+    if (!arrivee) return;
+    // Pas de depart impose : Maps part de la position du telephone.
+    ouvrirUrlExterne('https://www.google.com/maps/dir/?api=1&destination='
+      + encodeURIComponent(arrivee + ', Suisse'));
+  }
+
   function afficherAgenda() {
     $('agenda-titre').textContent = titreJour(jourAffiche);
     dessinerCalendrier('calendrier-agenda', cleJour(jourAffiche),
@@ -3107,6 +3131,10 @@
         + (d.telephone ? ' · ' + d.telephone : '') + '</div>'
         + (d.note ? '<div class="muted">« ' + d.note + ' »</div>' : '')
         + (retour ? '<div class="muted">' + retour + '</div>' : '')
+        // Ouvre Google Maps avec l'adresse DEJA saisie (pas de bouton
+        // sans adresse : il ouvrirait une carte vide).
+        + (adresseRdv(it) ? '<button class="secondaire" data-maps-rdv="'
+          + it.id + '">📍 Ouvrir dans Google Maps</button>' : '')
         // « Faire l'intervention » ne disait pas a quoi menait le
         // bouton. Cet ecran est deja le recapitulatif du rendez-vous,
         // avec le prix et la signature du client — c'est bien vers la
@@ -3124,6 +3152,13 @@
       document.querySelectorAll('[data-demarrer]'), function (b) {
         b.addEventListener('click', function () {
           ouvrirInterventionDepuisRdv(b.dataset.demarrer);
+        });
+      });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-maps-rdv]'), function (b) {
+        b.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          ouvrirMapsRdv(b.dataset.mapsRdv);
         });
       });
     Array.prototype.forEach.call(
@@ -4044,8 +4079,9 @@
     // ne pas le redemander sur le terrain.
     $('cli-tel').value = d.telephone || '';
     ['dist-km', 'rabais-montant', 'rabais-motif',
-     'deplacement-convenu', 'deplacement-convenu-motif']
+     'deplacement-convenu', 'deplacement-convenu-motif', 'num-facture']
       .forEach(function (i) { $(i).value = ''; });
+    $('num-facture').value = d.numeroFactureVoulu || '';
     // Reprise d'une intervention DEJA saisie : on recharge ce qui a
     // ete note, sinon « Modifier » effacerait tout le travail.
     $('dist-km').value = d.distanceKm == null ? '' : d.distanceKm;
@@ -4281,8 +4317,9 @@
     rdvEnCours = null;
     ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'cli-email',
      'cli-tel', 'dist-km', 'rabais-montant', 'rabais-motif',
-     'deplacement-convenu', 'deplacement-convenu-motif']
+     'deplacement-convenu', 'deplacement-convenu-motif', 'num-facture']
       .forEach(function (i) { $(i).value = ''; });
+    message('etat-num-facture', '');
     nidsSaisie = [nidVide()];
     coutsSaisie = [];
     effacerSignature();
@@ -4300,6 +4337,12 @@
   $('btn-annuler').addEventListener('click', function () {
     montrer('interventions');
   });
+
+  // Numero impose par Philippe (entier >= 1), ou undefined = automatique.
+  function numeroVouluSaisi() {
+    var n = parseInt($('num-facture').value, 10);
+    return isNaN(n) || n < 1 ? undefined : n;
+  }
 
   function interventionDepuisFormulaire() {
     var rabaisMontant = parseFloat($('rabais-montant').value);
@@ -4345,6 +4388,7 @@
       // sur la facture, de la presence du QR, et — pour les
       // encaissements immediats — du compte credite en comptabilite.
       modeReglement: reglementSaisi,
+      numeroFactureVoulu: numeroVouluSaisi(),
       signature: signatureActuelle(),
       signeeLe: signatureVide ? undefined : new Date().toISOString(),
     };
@@ -4436,6 +4480,20 @@
       return;
     }
     if (tarifEncoreIncertain(it)) return;
+    if ($('num-facture').value.trim() !== '' && !it.numeroFactureVoulu) {
+      message('etat-num-facture', 'Le numéro doit être un entier positif '
+        + '(ou laissez le champ vide).', 'alerte');
+      return;
+    }
+    if (it.numeroFactureVoulu) {
+      var occupe = factureAvecNumero(
+        numeroFactureTexte(it.numeroFactureVoulu), rdvEnCours && rdvEnCours.id);
+      if (occupe) {
+        message('etat-num-facture', 'Le numéro ' + occupe.numero
+          + ' existe déjà. Choisissez-en un autre.', 'alerte');
+        return;
+      }
+    }
     // Si l'intervention vient d'un rendez-vous, on MET A JOUR ce
     // rendez-vous au lieu d'en creer un second : sinon il resterait
     // planifie pour toujours dans l'agenda.
@@ -4506,6 +4564,54 @@
   */
   var facturationEnCours = {};
 
+  /*
+    NUMEROTATION (19.10). Philippe peut imposer le numero d'une facture
+    (ex. 19 apres une dizaine d'essais). Le compteur du serveur ne sait
+    pas « sauter » : on le laisse tourner, mais on ne s'y fie plus seul.
+    Regle : numero automatique = le plus grand de (compteur du serveur,
+    plus grand numero DEJA emis + 1). Ainsi, apres une facture n° 19, la
+    suivante est la 20 — jamais 11, qui reviendrait en arriere.
+    Les factures annulees comptent : leur numero reste pris.
+  */
+  function numeroFactureTexte(n) {
+    var t = String(n);
+    while (t.length < 4) t = '0' + t;
+    return 'F' + t + '-' + new Date().getFullYear();
+  }
+
+  function entierDuNumero(numero) {
+    var m = /^F(\d+)-(\d{4})$/.exec(String(numero || ''));
+    return m && Number(m[2]) === new Date().getFullYear() ? Number(m[1]) : 0;
+  }
+
+  function factureAvecNumero(numero, sauf) {
+    return lesFactures().find(function (f) {
+      return f.numero === numero && f.rdv_id !== sauf;
+    });
+  }
+
+  function plusGrandNumeroEmis() {
+    return lesFactures().reduce(function (max, f) {
+      return Math.max(max, entierDuNumero(f.numero));
+    }, 0);
+  }
+
+  function attribuerNumeroFacture(voulu) {
+    if (voulu) {
+      var numero = numeroFactureTexte(voulu);
+      if (factureAvecNumero(numero)) {
+        return Promise.reject(new Error('Le numéro ' + numero
+          + ' existe déjà. Modifiez l\u2019intervention et choisissez-en un autre.'));
+      }
+      return Promise.resolve(numero);
+    }
+    return depot.prochainNumeroFacture('F').then(function (numero) {
+      var suivant = plusGrandNumeroEmis() + 1;
+      if (entierDuNumero(numero) >= suivant) return numero;
+      return numeroFactureTexte(suivant);
+    });
+  }
+
   function facturer(id) {
     if (facturationEnCours[id]) return;
     var it = interventions.find(function (x) { return x.id === id; });
@@ -4524,7 +4630,7 @@
 
     // Le numero vient du depot : sur Supabase, c'est PostgreSQL qui
     // tranche, et deux appareils ne peuvent pas obtenir le meme.
-    depot.prochainNumeroFacture('F').then(function (numero) {
+    attribuerNumeroFacture(donnees.numeroFactureVoulu).then(function (numero) {
       var f = window.BillySuisse.preparerFacture(donnees, reglages, numero);
       if (f.erreur) {
         alert(f.erreur);
