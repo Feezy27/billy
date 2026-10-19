@@ -793,7 +793,9 @@
   <button id="btn-envoyer-facture" class="secondaire">Envoyer par e-mail</button>
   <button id="btn-payee" class="secondaire">Marquer comme payée</button>
   <div id="etat-facture"></div>
+  <button id="btn-modifier-facture" class="secondaire">Modifier cette facture</button>
   <button id="btn-annuler-facture" class="secondaire">Annuler cette facture</button>
+  <button id="btn-supprimer-facture" class="secondaire">Supprimer définitivement</button>
   <button id="btn-retour-factures" class="secondaire">Retour</button>
 </div>
 
@@ -4065,6 +4067,7 @@
   function ouvrirInterventionDepuisRdv(id) {
     var it = interventions.find(function (x) { return x.id === id; });
     if (!it) return;
+    sortirModeModification();
     rdvEnCours = it;
     var d = it.donnees || {};
 
@@ -4145,6 +4148,7 @@
     if (d.signature) {
       signatureVide = false;
       signatureConservee = d.signature;
+      signeeLeConservee = d.signeeLe || null;
       message('etat-signature', 'Signature déjà recueillie le '
         + new Date(d.signeeLe || Date.now()).toLocaleDateString('fr-CH')
         + '.', 'ok');
@@ -4183,6 +4187,9 @@
   var signatureVide = true;
   /** Signature reprise d'une intervention deja enregistree. */
   var signatureConservee = null;
+  // Date de la signature deja recueillie : elle ne doit pas etre
+  // rafraichie quand on re-enregistre (modification d'une facture).
+  var signeeLeConservee = null;
 
   function contexteSignature() {
     var c = $('signature');
@@ -4315,6 +4322,7 @@
 
   $('btn-nouvelle').addEventListener('click', function () {
     rdvEnCours = null;
+    sortirModeModification();
     ['cli-nom', 'cli-npa', 'cli-localite', 'cli-adresse', 'cli-email',
      'cli-tel', 'dist-km', 'rabais-montant', 'rabais-motif',
      'deplacement-convenu', 'deplacement-convenu-motif', 'num-facture']
@@ -4335,6 +4343,7 @@
   });
 
   $('btn-annuler').addEventListener('click', function () {
+    sortirModeModification();
     montrer('interventions');
   });
 
@@ -4390,7 +4399,9 @@
       modeReglement: reglementSaisi,
       numeroFactureVoulu: numeroVouluSaisi(),
       signature: signatureActuelle(),
-      signeeLe: signatureVide ? undefined : new Date().toISOString(),
+      signeeLe: signatureVide ? undefined
+        : ((signatureConservee && signeeLeConservee)
+          || new Date().toISOString()),
     };
   }
 
@@ -4487,7 +4498,9 @@
     }
     if (it.numeroFactureVoulu) {
       var occupe = factureAvecNumero(
-        numeroFactureTexte(it.numeroFactureVoulu), rdvEnCours && rdvEnCours.id);
+        numeroFactureTexte(it.numeroFactureVoulu,
+          factureEnModification && factureEnModification.annee),
+        rdvEnCours && rdvEnCours.id);
       if (occupe) {
         message('etat-num-facture', 'Le numéro ' + occupe.numero
           + ' existe déjà. Choisissez-en un autre.', 'alerte');
@@ -4573,10 +4586,10 @@
     suivante est la 20 — jamais 11, qui reviendrait en arriere.
     Les factures annulees comptent : leur numero reste pris.
   */
-  function numeroFactureTexte(n) {
+  function numeroFactureTexte(n, annee) {
     var t = String(n);
     while (t.length < 4) t = '0' + t;
-    return 'F' + t + '-' + new Date().getFullYear();
+    return 'F' + t + '-' + (annee || new Date().getFullYear());
   }
 
   function entierDuNumero(numero) {
@@ -4596,7 +4609,19 @@
     }, 0);
   }
 
-  function attribuerNumeroFacture(voulu) {
+  function attribuerNumeroFacture(voulu, ancienne, rdvId) {
+    if (ancienne) {
+      // MODIFICATION d'une facture existante : elle garde son annee, et
+      // son numero sauf si Philippe en a saisi un autre.
+      var m = /^F(\d+)-/.exec(ancienne.numero || '');
+      var n = voulu || (m ? Number(m[1]) : 0);
+      var nouveau = numeroFactureTexte(n, ancienne.annee);
+      if (factureAvecNumero(nouveau, rdvId)) {
+        return Promise.reject(new Error('Le numéro ' + nouveau
+          + ' existe déjà. Choisissez-en un autre.'));
+      }
+      return Promise.resolve(nouveau);
+    }
     if (voulu) {
       var numero = numeroFactureTexte(voulu);
       if (factureAvecNumero(numero)) {
@@ -4630,7 +4655,10 @@
 
     // Le numero vient du depot : sur Supabase, c'est PostgreSQL qui
     // tranche, et deux appareils ne peuvent pas obtenir le meme.
-    attribuerNumeroFacture(donnees.numeroFactureVoulu).then(function (numero) {
+    var ancienne = (factureEnModification
+      && factureEnModification.rdv_id === id) ? factureEnModification : null;
+    attribuerNumeroFacture(donnees.numeroFactureVoulu, ancienne, id)
+      .then(function (numero) {
       var f = window.BillySuisse.preparerFacture(donnees, reglages, numero);
       if (f.erreur) {
         alert(f.erreur);
@@ -4644,32 +4672,52 @@
       }
 
       var modeR = window.BillySuisse.modeReglement(donnees.modeReglement);
+      var ancienMode = ancienne
+        ? window.BillySuisse.modeReglement((ancienne.donnees || {}).modeReglement)
+        : null;
       var ligne = {
-        id: window.Billy.uuidv7(), rdv_id: it.id, numero: f.numero,
-        annee: new Date().getFullYear(), serie: 'F',
+        id: ancienne ? ancienne.id : window.Billy.uuidv7(),
+        rdv_id: it.id, numero: f.numero,
+        annee: ancienne ? ancienne.annee : new Date().getFullYear(),
+        serie: 'F',
         total_rappen: f.totalRappen, reference_qr: f.reference,
-        emise_le: f.emiseLe,
+        // Une facture MODIFIEE garde sa date d'emission d'origine.
+        emise_le: ancienne ? ancienne.emise_le : f.emiseLe,
         /*
           Especes et TWINT sont encaisses sur place : la facture est
           donc payee des son emission. Sans cela, elle apparaitrait a
           tort dans les impayes et dans « A encaisser » de la
           comptabilite, alors que l'argent est deja la.
         */
-        payee_le: modeR.immediat ? f.emiseLe : null,
+        payee_le: ancienne
+          // Modification : un paiement deja note est conserve, sauf si
+          // on passe d'un encaissement immediat (cash/TWINT) a un
+          // virement a venir, ou la facture redevient « en attente ».
+          ? (modeR.immediat ? (ancienne.payee_le || ancienne.emise_le)
+            : (ancienMode.immediat ? null : ancienne.payee_le))
+          : (modeR.immediat ? f.emiseLe : null),
         // La date de l'INTERVENTION (sur place) differe de la date
         // d'EMISSION de la facture — les deux figurent sur le document,
         // sur le modele de la facture papier de Philippe.
-        donnees: { lignes: f.lignes, totaux: f.totaux, client: donnees,
-                   dateIntervention: it.debut_le,
-                   modeReglement: modeR.id },
+        donnees: Object.assign({}, ancienne ? ancienne.donnees : {}, {
+          lignes: f.lignes, totaux: f.totaux, client: donnees,
+          dateIntervention: it.debut_le, modeReglement: modeR.id },
+          ancienne ? { modifieeLe: new Date().toISOString() } : {}),
       };
       return depot.enregistrerFacture(ligne).then(function () {
         // La facture EXISTE desormais : visible et retrouvable tout
         // de suite, avant la moindre autre etape qui pourrait echouer.
-        factures.unshift(ligne);
+        var pos = ancienne ? factures.findIndex(function (x) {
+          return x.id === ligne.id; }) : -1;
+        if (pos >= 0) factures[pos] = ligne; else factures.unshift(ligne);
+        factureEnModification = null;
+        majModeModification();
         afficherFactures();
 
         donnees.facturee = true;
+        // Le numero impose a ete consomme : le garder ferait echouer une
+        // refacturation ulterieure (« existe deja »).
+        delete donnees.numeroFactureVoulu;
         return depot.enregistrerIntervention(it)
           .catch(function (e) {
             // La facture, elle, est sauve : seul le marquage de
@@ -4924,6 +4972,7 @@
       ? 'Facture annulée : ' + (f.donnees.motifAnnulation || '')
       : '', 'info');
     $('btn-annuler-facture').style.display = annulee ? 'none' : 'block';
+    $('btn-modifier-facture').style.display = annulee ? 'none' : 'block';
     $('btn-payee').style.display = annulee ? 'none' : 'block';
     $('btn-payee').textContent = f.payee_le
       ? 'Annuler le paiement' : 'Marquer comme payée';
@@ -4994,6 +5043,97 @@
 
     montrer('facture');
   }
+
+  /*
+    MODIFIER une facture deja emise (19.10).
+
+    On rouvre le formulaire de l'intervention avec ce qui figure sur la
+    facture (montants, client, signature conservee, mode de reglement),
+    puis « Enregistrer » REMPLACE la facture : meme identifiant, meme
+    date d'emission, numero inchange sauf si Philippe en saisit un autre.
+    La reference de paiement suit le numero (preparerFacture).
+  */
+  var factureEnModification = null;
+
+  function majModeModification() {
+    $('btn-enregistrer').textContent = factureEnModification
+      ? 'Enregistrer les modifications' : 'Générer la facture';
+    $('btn-devis').style.display = factureEnModification ? 'none' : '';
+  }
+
+  function sortirModeModification() {
+    factureEnModification = null;
+    majModeModification();
+  }
+
+  $('btn-modifier-facture').addEventListener('click', function () {
+    var f = factureAffichee;
+    if (!f || (f.donnees || {}).annulee) return;
+    var client = (f.donnees || {}).client || {};
+    var it = interventions.find(function (x) { return x.id === f.rdv_id; });
+    if (!it) {
+      // L'intervention a disparu : on la reconstitue depuis la facture.
+      it = { id: f.rdv_id, debut_le: (f.donnees || {}).dateIntervention
+        || f.emise_le, duree_min: null, statut: 'termine', donnees: {} };
+      interventions.unshift(it);
+    }
+    it.npa = client.npa || it.npa;
+    it.localite = client.localite || it.localite;
+    it.adresse = client.adresse || it.adresse;
+    it.donnees = Object.assign({}, it.donnees, client);
+    ouvrirInterventionDepuisRdv(it.id);
+    factureEnModification = f;
+    majModeModification();
+    var m = /^F(\d+)-/.exec(f.numero || '');
+    $('num-facture').value = m ? Number(m[1]) : '';
+    message('etat-num-facture', 'Vous modifiez la facture ' + f.numero
+      + '. Changez le numéro ci-dessus si besoin.', 'info');
+  });
+
+  /*
+    SUPPRIMER DEFINITIVEMENT une facture (19.10) — demande expresse de
+    Philippe, pour effacer ses factures de test. Contrairement a
+    l'annulation, rien ne reste visible. A ne pas utiliser sur une
+    vraie facture deja envoyee : le trou dans la numerotation est
+    precisement ce qu'un controle remarque. Le message le dit.
+  */
+  $('btn-supprimer-facture').addEventListener('click', function () {
+    var f = factureAffichee;
+    if (!f) return;
+    var attention = (f.payee_le ? 'Cette facture est marquée PAYÉE : '
+      + 'l\u2019encaissement disparaîtra aussi de la comptabilité.\n\n' : '');
+    if (!window.confirm('Supprimer DÉFINITIVEMENT la facture ' + f.numero
+      + ' ?\n\n' + attention + 'Elle ne laissera aucune trace (pas même '
+      + '« annulée ») et ne pourra pas être rétablie.\n\n'
+      + 'À réserver aux factures de test : pour une vraie facture, '
+      + 'préférez « Annuler ».')) return;
+    var tout = window.confirm('Supprimer AUSSI l\u2019intervention liée '
+      + '(cas d\u2019une facture de test) ?\n\nOK = tout supprimer\n'
+      + 'Annuler = garder l\u2019intervention, qui retournera dans '
+      + '« À facturer »');
+
+    depot.supprimerFacture(f.id).then(function () {
+      factures = factures.filter(function (x) { return x.id !== f.id; });
+      if (factureAffichee && factureAffichee.id === f.id) factureAffichee = null;
+      var it = interventions.find(function (x) { return x.id === f.rdv_id; });
+      if (!it) return;
+      if (tout) {
+        interventions = interventions.filter(function (x) {
+          return x.id !== it.id; });
+        return depot.supprimerIntervention(it.id);
+      }
+      it.donnees = it.donnees || {};
+      it.donnees.facturee = false;
+      return depot.enregistrerIntervention(it);
+    }).then(function () {
+      afficherFactures();
+      afficherInterventions();
+      afficherAgenda();
+      montrer('factures');
+    }).catch(function (e) {
+      message('etat-facture', 'Suppression impossible : ' + (e.message || e));
+    });
+  });
 
   /*
     ANNULER une facture, jamais la supprimer.
