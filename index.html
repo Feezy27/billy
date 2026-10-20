@@ -424,6 +424,9 @@
     touch-action:none;cursor:crosshair;display:block}
   .signature-vue{width:100%;max-width:320px;background:#fff;border-radius:8px;
     border:1px solid var(--ligne);margin-top:8px}
+  /* Zone de signature fermee / apercu masque (20.10). */
+  .cache{display:none !important}
+  #zone-signature{margin-top:6px}
 
   /* ---- Impression ----
      Sans cette feuille, imprimer produisait la page entiere : barre de
@@ -533,6 +536,10 @@
     <div id="sugg-rdv-nom" class="suggestions"></div>
     <label for="rdv-tel">Téléphone</label>
     <input id="rdv-tel" type="tel" inputmode="tel">
+    <!-- 20.10 : facultatif ici ; s'il manque, il se complete a la facturation. -->
+    <label for="rdv-email">E-mail du client (facultatif)</label>
+    <input id="rdv-email" type="email" inputmode="email" autocomplete="off"
+      autocapitalize="off" spellcheck="false">
     <label for="rdv-adresse">Adresse</label>
     <input id="rdv-adresse">
     <div class="rangee">
@@ -714,15 +721,34 @@
     <p class="muted">Le client confirme que l'intervention a été faite et
       qu'il accepte le montant. Facultatif, mais utile en cas de
       contestation.</p>
-    <canvas id="signature" width="500" height="180"></canvas>
-    <div class="rangee">
-      <button id="btn-effacer-signature" class="secondaire">Effacer</button>
+    <!--
+      DEMANDE DU 20.10 : la zone de signature restait ouverte en
+      permanence, et un doigt pose en faisant defiler la page y tracait
+      des traits parasites. Elle est desormais FERMEE par defaut : on
+      l'ouvre d'un bouton, le client signe, on valide, et elle se
+      referme. La signature validee s'affiche en image (non dessinable).
+    -->
+    <button id="btn-ouvrir-signature" class="secondaire">✍️ Faire signer le client</button>
+    <div id="zone-signature" class="cache">
+      <canvas id="signature" width="500" height="180"></canvas>
+      <div class="rangee">
+        <button id="btn-effacer-signature" class="secondaire">Effacer</button>
+        <button id="btn-annuler-signature" class="secondaire">Annuler</button>
+      </div>
+      <button id="btn-valider-signature">Valider la signature</button>
+    </div>
+    <div id="apercu-signature" class="cache">
+      <img id="img-signature" class="signature-vue" alt="Signature du client">
+      <div class="rangee">
+        <button id="btn-refaire-signature" class="secondaire">Refaire</button>
+        <button id="btn-supprimer-signature" class="secondaire">Supprimer</button>
+      </div>
     </div>
     <div id="etat-signature"></div>
   </div>
 
   <label for="cli-email">E-mail du client</label>
-  <input id="cli-email" type="email" inputmode="email">
+  <input id="cli-email" type="email" inputmode="email" autocomplete="off">
 
   <button id="btn-enregistrer">Générer la facture</button>
   <button id="btn-devis" class="secondaire">Établir un devis</button>
@@ -2497,9 +2523,16 @@
     }).forEach(function (it) {
       var d = it.donnees || {};
       var nom = (d.clientNom || '').trim();
-      if (!nom || vus[nom.toLowerCase()]) return;
+      if (!nom) return;
+      var deja = vus[nom.toLowerCase()];
+      if (deja) {
+        // Le plus recent prime, mais un e-mail note une fois ne doit
+        // pas etre perdu parce que le dernier rendez-vous n'en avait pas.
+        if (!deja.email && d.email) deja.email = d.email;
+        return;
+      }
       vus[nom.toLowerCase()] = {
-        nom: nom, telephone: d.telephone || '',
+        nom: nom, telephone: d.telephone || '', email: d.email || '',
         adresse: it.adresse || '', npa: it.npa || '',
         localite: it.localite || '',
       };
@@ -2635,6 +2668,7 @@
   brancherSuggestionClient('rdv-nom', 'sugg-rdv-nom', function (c) {
     $('rdv-nom').value = c.nom;
     if (c.telephone) $('rdv-tel').value = c.telephone;
+    if (c.email) $('rdv-email').value = c.email;
     if (c.adresse) $('rdv-adresse').value = c.adresse;
     if (c.npa) $('rdv-npa').value = c.npa;
     if (c.localite) $('rdv-localite').value = c.localite;
@@ -2650,6 +2684,7 @@
 
   brancherSuggestionClient('cli-nom', 'sugg-cli-nom', function (c) {
     $('cli-nom').value = c.nom;
+    if (c.email && !$('cli-email').value.trim()) $('cli-email').value = c.email;
     if (c.adresse) $('cli-adresse').value = c.adresse;
     if (c.npa) $('cli-npa').value = c.npa;
     if (c.localite) $('cli-localite').value = c.localite;
@@ -3908,8 +3943,8 @@
     message('etat-rdv', '');
 
     if (!rdvEnEdition) {
-      ['rdv-nom', 'rdv-tel', 'rdv-adresse', 'rdv-npa', 'rdv-localite',
-       'rdv-note'].forEach(function (i) { $(i).value = ''; });
+      ['rdv-nom', 'rdv-tel', 'rdv-email', 'rdv-adresse', 'rdv-npa',
+       'rdv-localite', 'rdv-note'].forEach(function (i) { $(i).value = ''; });
       $('rdv-date').value = cleJour(jourAffiche);
       // Aujourd'hui : l'heure reelle, arrondie. Un autre jour : 09:00
       // reste un depart de journee raisonnable — « maintenant » n'a
@@ -3923,6 +3958,7 @@
       var debut = new Date(rdvEnEdition.debut_le);
       $('rdv-nom').value = d.clientNom || '';
       $('rdv-tel').value = d.telephone || '';
+      $('rdv-email').value = d.email || '';
       $('rdv-date').value = cleJour(debut);
       definirHeureRdv(String(debut.getHours()).padStart(2, '0')
         + ':' + String(debut.getMinutes()).padStart(2, '0'));
@@ -4016,6 +4052,9 @@
       donnees: {
         clientNom: nom,
         telephone: $('rdv-tel').value.trim(),
+        // Facultatif (20.10) : repris dans « E-mail du client » au
+        // moment de facturer, ou il reste modifiable / completable.
+        email: $('rdv-email').value.trim(),
         note: $('rdv-note').value.trim(),
         // Ce qui a ete note au telephone : repris tel quel sur le
         // terrain, pour ne rien ressaisir. Des tableaux : le meme
@@ -4150,13 +4189,13 @@
     // conserve telle quelle plutot que de la perdre a la reprise.
     effacerSignature();
     if (d.signature) {
-      signatureVide = false;
       signatureConservee = d.signature;
       signeeLeConservee = d.signeeLe || null;
+      afficherEtatSignature();
       message('etat-signature', 'Signature déjà recueillie le '
         + new Date(d.signeeLe || Date.now()).toLocaleDateString('fr-CH')
         + '.', 'ok');
-    } else { signatureConservee = null; }
+    }
     reglementSaisi = d.modeReglement || '';
     afficherChoixReglement();
     afficherNids();
@@ -4188,11 +4227,31 @@
     comme un bon de livraison signe. Utile en cas de contestation,
     pas opposable comme un acte notarie.
   */
+  /*
+    OUVRIR / VALIDER (demande du 20.10). Avant, le canevas etait ouvert
+    en permanence au milieu du formulaire : en faisant defiler la page
+    du doigt, Philippe y tracait des traits sans le vouloir, et ces
+    traits partaient sur la facture comme une « signature ».
+
+    Desormais trois etats, et seulement trois :
+      1. ferme, pas de signature   -> bouton « Faire signer le client »
+      2. ouvert                    -> canevas + Effacer / Annuler / Valider
+      3. ferme, signature validee  -> image de la signature + Refaire / Supprimer
+
+    Seule une signature VALIDEE est enregistree. Le canevas n'accepte un
+    trait que lorsqu'il est ouvert ; ferme, il est de toute facon cache.
+  */
+  /** Le canevas contient-il au moins un trait ? */
   var signatureVide = true;
-  /** Signature reprise d'une intervention deja enregistree. */
+  /** La zone de dessin est-elle ouverte ? */
+  var zoneSignatureOuverte = false;
+  /**
+   * La signature RETENUE (image PNG en data:), qu'elle vienne d'etre
+   * validee ou qu'elle soit reprise d'une intervention deja enregistree.
+   */
   var signatureConservee = null;
-  // Date de la signature deja recueillie : elle ne doit pas etre
-  // rafraichie quand on re-enregistre (modification d'une facture).
+  // Date de la signature retenue : elle ne doit pas etre rafraichie
+  // quand on re-enregistre (modification d'une facture).
   var signeeLeConservee = null;
 
   function contexteSignature() {
@@ -4203,19 +4262,91 @@
     try { return c.getContext('2d'); } catch (e) { return null; }
   }
 
-  function effacerSignature() {
+  function afficherEtatSignature() {
+    var ouverte = zoneSignatureOuverte;
+    var retenue = !!signatureConservee;
+    $('zone-signature').classList.toggle('cache', !ouverte);
+    $('btn-ouvrir-signature').classList.toggle('cache', ouverte || retenue);
+    $('apercu-signature').classList.toggle('cache', ouverte || !retenue);
+    if (retenue && !ouverte) $('img-signature').src = signatureConservee;
+  }
+
+  /** Vide le canevas, sans toucher a la signature deja validee. */
+  function viderCanevas() {
     var ctx = contexteSignature();
     if (ctx) ctx.clearRect(0, 0, $('signature').width, $('signature').height);
     signatureVide = true;
+  }
+
+  /** Remise a zero complete : nouveau formulaire, ou suppression. */
+  function effacerSignature() {
+    viderCanevas();
+    zoneSignatureOuverte = false;
     signatureConservee = null;
+    signeeLeConservee = null;
+    $('img-signature').removeAttribute('src');
     message('etat-signature', '');
+    afficherEtatSignature();
+  }
+
+  function ouvrirZoneSignature() {
+    viderCanevas();
+    zoneSignatureOuverte = true;
+    message('etat-signature', '');
+    afficherEtatSignature();
+    var c = $('signature');
+    if (c && c.scrollIntoView) {
+      c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  function validerSignature() {
+    if (signatureVide) {
+      message('etat-signature', 'Le client n’a pas encore signé.', 'alerte');
+      return;
+    }
+    var image = null;
+    try { image = $('signature').toDataURL('image/png'); } catch (e) { image = null; }
+    if (!image) {
+      message('etat-signature', 'La signature n’a pas pu être lue. '
+        + 'Réessayez.', 'alerte');
+      return;
+    }
+    signatureConservee = image;
+    signeeLeConservee = new Date().toISOString();
+    zoneSignatureOuverte = false;
+    viderCanevas();
+    afficherEtatSignature();
+    message('etat-signature', 'Signature enregistrée.', 'ok');
+  }
+
+  /** Ferme la zone sans rien changer a la signature deja retenue. */
+  function annulerSignature() {
+    viderCanevas();
+    zoneSignatureOuverte = false;
+    message('etat-signature', '');
+    afficherEtatSignature();
+  }
+
+  /**
+   * Vrai si le client a trace quelque chose sans que ce soit valide :
+   * on refuse alors de generer le document, plutot que de deviner si
+   * ces traits sont une vraie signature ou un geste involontaire.
+   */
+  function signatureEnAttente() {
+    if (!zoneSignatureOuverte) return false;
+    if (signatureVide) { annulerSignature(); return false; }
+    message('etat-signature', 'Appuyez sur « Valider la signature » '
+      + '(ou « Annuler ») avant de continuer.', 'alerte');
+    var c = $('signature');
+    if (c && c.scrollIntoView) {
+      c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    return true;
   }
 
   function signatureActuelle() {
-    if (signatureConservee) return signatureConservee;
-    if (signatureVide) return null;
-    var c = $('signature');
-    try { return c.toDataURL('image/png'); } catch (e) { return null; }
+    return signatureConservee || null;
   }
 
   (function brancherSignature() {
@@ -4234,6 +4365,8 @@
     }
 
     c.addEventListener('pointerdown', function (ev) {
+      // Zone fermee : aucun trait possible, meme par accident.
+      if (!zoneSignatureOuverte) return;
       var ctx = contexteSignature();
       if (!ctx) return;
       dessine = true;
@@ -4263,7 +4396,15 @@
     });
   })();
 
-  $('btn-effacer-signature').addEventListener('click', effacerSignature);
+  $('btn-ouvrir-signature').addEventListener('click', ouvrirZoneSignature);
+  $('btn-effacer-signature').addEventListener('click', viderCanevas);
+  $('btn-annuler-signature').addEventListener('click', annulerSignature);
+  $('btn-valider-signature').addEventListener('click', validerSignature);
+  // « Refaire » rouvre la zone ; l'ancienne signature reste retenue
+  // tant qu'une nouvelle n'est pas validee (« Annuler » la garde).
+  $('btn-refaire-signature').addEventListener('click', ouvrirZoneSignature);
+  $('btn-supprimer-signature').addEventListener('click', effacerSignature);
+  afficherEtatSignature();
 
   /* ---------- Liste des interventions ---------- */
 
@@ -4403,9 +4544,8 @@
       modeReglement: reglementSaisi,
       numeroFactureVoulu: numeroVouluSaisi(),
       signature: signatureActuelle(),
-      signeeLe: signatureVide ? undefined
-        : ((signatureConservee && signeeLeConservee)
-          || new Date().toISOString()),
+      signeeLe: signatureConservee
+        ? (signeeLeConservee || new Date().toISOString()) : undefined,
     };
   }
 
@@ -4485,6 +4625,7 @@
       message('carte-chiffrage', 'Le nom du client est nécessaire.');
       return;
     }
+    if (signatureEnAttente()) return;
     if (!it.modeReglement) {
       message('etat-reglement', 'Choisissez le mode de règlement avant de '
         + 'générer la facture.', 'alerte');
@@ -6166,6 +6307,7 @@
       message('carte-chiffrage', 'Le nom du client est nécessaire.');
       return;
     }
+    if (signatureEnAttente()) return;
     if (tarifEncoreIncertain(it)) return;
     depot.prochainNumeroFacture('D').then(function (numero) {
       var d = window.BillySuisse.preparerDevis(it, reglages, numero);
