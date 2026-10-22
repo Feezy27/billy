@@ -342,8 +342,33 @@
     Dans le bloc entreprise, pas seul et centre : sur le modele fourni
     (docx), logo et coordonnees forment un seul ensemble a gauche.
   */
-  .logo-facture{width:64px;height:64px;object-fit:contain;
-    display:block;margin-bottom:6px}
+  .logo-facture{height:76px;width:auto;max-width:130px;object-fit:contain;
+    display:block;margin-bottom:8px}
+  /*
+    MODELE DU 22.10 : tableau a bordures (Designation / PU / Rabais /
+    Montant TTC), sur le modele de la facture papier de Philippe.
+  */
+  .table-facture{width:100%;border-collapse:collapse;margin-top:10px;
+    font-size:13px}
+  .table-facture th,.table-facture td{border:1px solid var(--marine);
+    padding:6px 4px;vertical-align:top;overflow-wrap:anywhere}
+  .table-facture th{text-align:center;font-weight:800;font-size:12px;
+    overflow-wrap:normal}
+  .table-facture td.num{text-align:right;white-space:nowrap}
+  /* Pas de largeurs imposees : les colonnes de chiffres prennent la
+     place de leur contenu (un gros montant ne deborde plus), la
+     designation prend le reste. */
+  .table-facture .col-des{width:99%}
+  /* Pas « .total » : cette classe existe deja (ligne flex du devis,
+     du bilan…) et casserait la rangee du tableau. */
+  .table-facture tr.ligne-total td{font-weight:800}
+  .table-facture td.etiquette{text-align:right}
+  /* Un montant exceptionnel sur un petit ecran : le tableau defile sur
+     le cote au lieu d'elargir toute la page. */
+  .defile-x{overflow-x:auto}
+  .intro-facture{margin-top:16px;font-size:13px}
+  .conditions-facture{margin-top:10px;font-size:13px;padding-left:4px}
+  .politesse-facture{margin-top:22px;font-size:13px}
   .regle{border:1px solid var(--ligne);border-radius:12px;margin-bottom:8px;
     overflow:hidden;background:var(--beige)}
   .regle-titre{width:100%;margin:0;border-radius:0;background:none;
@@ -458,7 +483,9 @@
     #facture-entete .num-facture{color:#000}
     .ligne-facture{border-bottom:1px solid #ddd}
     .total.gros{border-top:2px solid #000}
-    .logo-facture{width:56px;height:56px}
+    .logo-facture{height:68px;width:auto}
+    .defile-x{overflow:visible}
+    .table-facture th,.table-facture td{border-color:#000}
     #qr-affichage{page-break-inside:avoid;margin-top:10px}
     #qr-affichage svg{background:#fff}
     /*
@@ -5127,29 +5154,41 @@
     }
     var d = f.donnees || {};
     ecrireEnteteFacture(f, d);
-    var h = '<div class="ligne-facture ligne-entete"><span>Désignation</span>'
-      + '<span>Montant</span></div>';
-    h += (d.lignes || []).map(function (l) {
-      return '<div class="ligne-facture"><span>' + l.label + '</span><span>'
-        + window.Billy.formatChf(l.amount) + '</span></div>';
+    var BS = window.BillySuisse;
+    var h = '<p class="intro-facture">' + BS.PHRASE_INTRO_FACTURE + '</p>';
+    h += '<div class="defile-x"><table class="table-facture"><thead><tr>'
+      + '<th class="col-des">Désignation</th><th class="col-pu">PU</th>'
+      + '<th class="col-rab">Rabais</th><th class="col-mont">Montant TTC</th>'
+      + '</tr></thead><tbody>';
+    h += BS.lignesTableau(d.lignes).map(function (r) {
+      return '<tr><td>' + r.designation + '</td><td class="num">' + r.pu
+        + '</td><td class="num">' + r.rabais + '</td><td class="num">'
+        + r.montant + '</td></tr>';
     }).join('');
-    h += '<div class="total gros"><span>Total</span><span>'
-      + window.Billy.formatChf(f.total_rappen) + ' CHF</span></div>';
     if (d.totaux && d.totaux.vat) {
-      h += '<div class="total muted"><span>dont TVA</span><span>'
-        + window.Billy.formatChf(d.totaux.vat) + '</span></div>';
+      h += '<tr><td class="etiquette">dont TVA '
+        + (reglages.tva ? reglages.tva.taux : '') + ' %</td><td></td><td></td>'
+        + '<td class="num">' + window.Billy.formatChf(d.totaux.vat) + '</td></tr>';
     }
-    h += '<p class="muted" style="margin-top:16px">En vous remerciant de la '
-      + 'confiance que vous nous témoignez, nous vous prions d\u2019agréer, '
-      + 'Cher Client, nos salutations distinguées.</p>';
+    h += '<tr class="ligne-total"><td class="etiquette">TOTAL</td><td></td><td></td>'
+      + '<td class="num">' + window.Billy.formatChf(f.total_rappen)
+      + ' CHF</td></tr></tbody></table></div>';
+    // Un encaissement sur place (especes, TWINT) n'a pas de delai :
+    // la mention « Payé en … » figure deja plus bas.
+    if (BS.modeReglement(d.modeReglement).avecQR) {
+      var delaiJours = (reglages.tva && reglages.tva.delaiJours) || 30;
+      h += '<p class="conditions-facture">Conditions de paiement : '
+        + delaiJours + ' jours, net</p>';
+    }
+    h += '<p class="politesse-facture">' + BS.FORMULE_POLITESSE + '</p>';
     $('facture-detail').innerHTML = h;
 
     var sig = (d.client || {}).signature;
     if (sig) {
       $('facture-detail').innerHTML += '<p class="muted" '
         + 'style="margin-top:14px">Signé par le client le '
-        + new Date((d.client || {}).signeeLe || f.emise_le)
-            .toLocaleDateString('fr-CH')
+        + window.BillySuisse.dateLongue(
+            (d.client || {}).signeeLe || f.emise_le)
         + '</p><img class="signature-vue" alt="Signature du client" src="'
         + sig + '">';
     }
@@ -5335,7 +5374,8 @@
   function ecrireEnteteFacture(f, d) {
     var delai = (reglages.tva && reglages.tva.delaiJours) || 30;
     ecrireEnteteDocument('facture-entete', f, d, {
-      titre: 'Facture ' + f.numero,
+      styleModele: true,
+      titre: 'Facture n° ' + f.numero,
       /*
         La reference de paiement figure en clair sur la facture : c'est
         elle qui reviendra sur le releve bancaire en face du virement.
@@ -5357,6 +5397,9 @@
     var emise = new Date(f.emise_le || Date.now());
     var echeance = new Date(opts.echeance || emise);
     var jour = function (x) { return x.toLocaleDateString('fr-CH'); };
+    // Facture : dates en toutes lettres (« 13 octobre 2026 »), comme
+    // sur le modele papier. Le devis garde son format habituel.
+    if (opts.styleModele) jour = window.BillySuisse.dateLongue;
 
     /*
       Disposition reprise du modele papier de Philippe (docx fourni) :
@@ -5377,10 +5420,12 @@
       + (e.email ? '<br>' + e.email : '')
       + '</div>';
 
+    // Facture : l'e-mail du client passe dans les lignes de references
+    // (« Email : … »), comme sur le modele.
     h += '<div class="dest">' + (c.clientNom || '') + '<br>'
       + (c.adresse || '') + '<br>'
       + [c.npa, c.localite].filter(Boolean).join(' ')
-      + (c.email ? '<br>' + c.email : '') + '</div>';
+      + (c.email && !opts.styleModele ? '<br>' + c.email : '') + '</div>';
     h += '</div>';
 
     // « Bettens, le 11 septembre 2026 » — lieu d'emission + date,
@@ -5396,6 +5441,38 @@
     }
     if (c.telephone) {
       references.push('Votre téléphone : ' + c.telephone);
+    }
+
+    if (opts.styleModele) {
+      /*
+        Lignes de references du modele papier : intervention, telephone,
+        e-mail, numero de facture, mention TVA. Plus de « Date » ni de
+        « Payable jusqu'au » ici : le delai est dit sous le tableau
+        (« Conditions de paiement »), la reference de paiement figure
+        sur la partie QR.
+      */
+      if (c.email) references.push('Email : ' + c.email);
+      references.push('<strong class="num-facture">' + opts.titre
+        + '</strong>');
+      if (reglages.tva && reglages.tva.assujetti) {
+        if (reglages.tva.numero) {
+          references.push('N° TVA : ' + reglages.tva.numero);
+        }
+        references.push('Montants en CHF, TVA ' + reglages.tva.taux
+          + ' % comprise.');
+      } else {
+        references.push(window.BillySuisse.MENTION_NON_ASSUJETTI);
+      }
+      if ((d.client || {}).signature) {
+        references.push('Intervention confirmée par la signature du client.');
+      }
+      h += '<div class="references">' + references.join('<br>') + '</div>';
+      if ((f.donnees || {}).annulee) {
+        h += '<div class="alerte">FACTURE ANNULÉE — '
+          + (f.donnees.motifAnnulation || '') + '</div>';
+      }
+      $(cible).innerHTML = h;
+      return;
     }
     if (references.length) {
       h += '<div class="references">' + references.join('<br>') + '</div>';

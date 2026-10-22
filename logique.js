@@ -449,6 +449,47 @@
     return numero ? ('Facture ' + numero).slice(0, 140) : undefined;
   }
 
+  /*
+    TEXTES ET OUTILS DU MODELE DE FACTURE (22.10) — partages entre le
+    vrai PDF (ci-dessus) et la facture a l'ecran (index.html), pour
+    qu'ils ne divergent jamais.
+  */
+  var MENTION_NON_ASSUJETTI = 'Entreprise non soumise à la TVA';
+  var PHRASE_INTRO_FACTURE =
+    'Nous vous prions de bien vouloir trouver notre facture ci-dessous :';
+  var FORMULE_POLITESSE = 'En vous remerciant de la confiance que vous '
+    + 'nous témoignez, nous vous prions d\u2019agréer, Cher Client, nos '
+    + 'salutations distinguées.';
+
+  /** « 13 octobre 2026 » (et « 1er octobre 2026 »). */
+  function dateLongue(date) {
+    var d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d.getTime())) return '';
+    var t = d.toLocaleDateString('fr-CH',
+      { day: 'numeric', month: 'long', year: 'numeric' });
+    return t.replace(/^1 /, '1er ');
+  }
+
+  /**
+   * Les lignes de la facture, prets pour les colonnes
+   * Designation / PU / Rabais / Montant.
+   *  - plusieurs exemplaires : « 2 × Traitement », PU = prix d'un seul ;
+   *  - une ligne negative (rabais) va dans la colonne Rabais, pas PU.
+   */
+  function lignesTableau(lignes) {
+    return (lignes || []).map(function (l) {
+      var q = l.quantity || 1;
+      var negatif = l.amount < 0;
+      return {
+        designation: (q > 1 ? q + ' × ' : '') + l.label,
+        pu: negatif ? '' : B.formatChf(
+          l.unitPrice != null ? l.unitPrice : l.amount),
+        rabais: negatif ? B.formatChf(l.amount) : '',
+        montant: B.formatChf(l.amount),
+      };
+    });
+  }
+
   /**
    * Construit un vrai fichier PDF de la facture — pas une capture
    * d'ecran, un document texte genere directement, page par page,
@@ -501,123 +542,157 @@
           resolve(new Blob(chunks, { type: 'application/pdf' }));
         });
 
-        var largeurPage = doc.page.width - doc.page.margins.left
-          - doc.page.margins.right;
+        var M = doc.page.margins.left;
+        var largeurPage = doc.page.width - M - doc.page.margins.right;
         var largeurColonne = largeurPage / 2 - 10;
-        var xDroite = doc.page.margins.left + largeurPage / 2 + 10;
+        var xDroite = M + largeurPage / 2 + 10;
         var y = doc.page.margins.top;
+        var modeR = modeReglement(d.modeReglement);
 
         /*
-          Disposition reprise du modele papier de Philippe : logo ET
-          coordonnees de l'entreprise regroupes dans le MEME bloc, a
-          gauche — pas le logo seul, centre, comme avant. Le client
-          occupe le bloc de droite, en face.
+          MODELE DU 22.10 (facture « 026-12 » de Philippe) : logo en haut
+          a gauche, ses coordonnees dessous, le client en haut a droite,
+          lieu et date, lignes de references, phrase d'introduction,
+          TABLEAU a bordures (Designation / PU / Rabais / Montant TTC),
+          conditions de paiement, formule de politesse. La partie
+          paiement QR vient ensuite (voir plus bas).
         */
         var yEntreprise = y;
         if (logoBytes) {
-          var cote = 40;
-          doc.image(logoBytes, doc.page.margins.left, yEntreprise,
-            { width: cote, height: cote });
-          yEntreprise += cote + 6;
+          // « fit » : le logo garde ses proportions (il n'est plus
+          // etire dans un carre) et tient dans 110 x 76 pt.
+          try { doc.image(logoBytes, M, y, { fit: [110, 76] }); }
+          catch (errLogo) { /* un logo illisible ne bloque pas le PDF */ }
+          yEntreprise = y + 84;
         }
-        doc.fontSize(10).fillColor('#000')
-          .text([e.nom, [e.adresse, e.numero].filter(Boolean).join(' '),
-            [e.npa, e.localite].filter(Boolean).join(' '),
-            e.telephone ? 'Tél : ' + e.telephone : '', e.email]
-            .filter(Boolean).join('\n'),
-            doc.page.margins.left, yEntreprise, { width: largeurColonne });
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000')
+          .text(e.nom || '', M, yEntreprise, { width: largeurColonne });
+        doc.font('Helvetica').text([[e.adresse, e.numero].filter(Boolean).join(' '),
+          [e.npa, e.localite].filter(Boolean).join(' '),
+          e.telephone ? 'Tél : ' + e.telephone : '', e.email]
+          .filter(Boolean).join('\n'), M, doc.y, { width: largeurColonne });
+        var finGauche = doc.y;
 
+        // L'e-mail du client n'est plus ici : il passe dans les lignes
+        // de references, comme sur le modele.
         doc.text([c.clientNom, c.adresse,
-          [c.npa, c.localite].filter(Boolean).join(' '), c.email]
+          [c.npa, c.localite].filter(Boolean).join(' ')]
           .filter(Boolean).join('\n'),
-          xDroite, y, { width: largeurColonne, align: 'right' });
+          xDroite, logoBytes ? y + 70 : y,
+          { width: largeurColonne, align: 'right' });
+        var finDroite = doc.y;
 
-        doc.y = Math.max(yEntreprise + 60, y + 70);
-        doc.x = doc.page.margins.left;
+        doc.y = Math.max(finGauche, finDroite) + 18;
+        doc.x = M;
 
-        // « Bettens, le 11 septembre 2026 » — lieu d'emission + date.
+        // « Bettens, le 13 octobre 2026 » — lieu d'emission + date.
         if (e.localite) {
-          doc.moveDown(0.8).fontSize(10)
-            .text(e.localite + ', le ' + jour(emise), { align: 'right' });
+          doc.text(e.localite + ', le ' + dateLongue(emise), M, doc.y,
+            { width: largeurPage, align: 'right' });
         }
 
         var references = [];
         if (d.dateIntervention) {
           references.push('Intervention du '
-            + jour(new Date(d.dateIntervention)));
+            + dateLongue(new Date(d.dateIntervention)));
         }
-        if (c.telephone) {
-          references.push('Votre téléphone : ' + c.telephone);
-        }
-        if (references.length) {
-          doc.moveDown(0.8).text(references.join('\n'),
-            doc.page.margins.left, doc.y, { width: largeurPage });
-        }
-
-        // Numero, dates : mis en avant, comme sur l'ecran.
-        doc.moveDown(0.8).fontSize(14).text(f.numero, doc.page.margins.left);
-        doc.fontSize(10).fillColor('#444')
-          .text('Date : ' + jour(emise))
-          .text('Payable jusqu\u2019au ' + jour(echeance));
-        /*
-          La reference de paiement, ecrite aussi en toutes lettres sur
-          la facture : c'est elle qui revient sur le releve bancaire.
-          Un client qui paie a la main peut la recopier.
-        */
-        if (f.reference_qr) {
-          doc.text('Référence de paiement : '
-            + referenceLisible(f.reference_qr));
-        }
-
-        var mentions = [];
-        if (reglages.tva && reglages.tva.assujetti && reglages.tva.numero) {
-          mentions.push('N° TVA : ' + reglages.tva.numero);
-        }
+        if (c.telephone) references.push('Votre téléphone : ' + c.telephone);
+        if (c.email) references.push('Email : ' + c.email);
+        references.push('Facture n° ' + f.numero);
         if (reglages.tva && reglages.tva.assujetti) {
-          mentions.push('Montants en CHF, TVA ' + reglages.tva.taux
+          if (reglages.tva.numero) {
+            references.push('N° TVA : ' + reglages.tva.numero);
+          }
+          // Les tarifs sont TTC : le dire evite qu'un client
+          // professionnel ajoute la TVA de son cote.
+          references.push('Montants en CHF, TVA ' + reglages.tva.taux
             + ' % comprise.');
         } else {
-          mentions.push('Non assujetti à la TVA selon l\u2019art. 10 al. 2 LTVA');
+          references.push(MENTION_NON_ASSUJETTI);
         }
         if (c.signature) {
-          mentions.push('Intervention confirmée par la signature du client.');
+          references.push('Intervention confirmée par la signature du client.');
         }
         if (d.annulee) {
-          mentions.push('FACTURE ANNULÉE — ' + (d.motifAnnulation || ''));
+          references.push('FACTURE ANNULÉE — ' + (d.motifAnnulation || ''));
         }
-        doc.moveDown(0.5).text(mentions.join('\n'));
+        doc.moveDown(1).text(references.join('\n'), M, doc.y,
+          { width: largeurPage });
 
-        // Lignes de la facture.
-        doc.moveDown(1).fillColor('#000').fontSize(11);
-        (d.lignes || []).forEach(function (l) {
-          var ligneY = doc.y;
-          doc.text(l.label, doc.page.margins.left, ligneY,
-            { width: largeurColonne * 1.4 });
-          doc.text(B.formatChf(l.amount) + ' CHF',
-            doc.page.margins.left, ligneY,
-            { width: largeurPage, align: 'right' });
-          doc.moveDown(0.3);
+        doc.moveDown(1).text(PHRASE_INTRO_FACTURE, M, doc.y,
+          { width: largeurPage });
+        doc.moveDown(1);
+
+        /*
+          LE TABLEAU. Dessine a la main : des cadres noirs de 0,5 pt,
+          une rangee d'en-tete, une rangee par ligne, puis TOTAL. Une
+          ligne trop longue passe a la ligne dans sa cellule, et la
+          rangee grandit avec elle. Si la page est pleine, le tableau
+          continue sur la suivante.
+        */
+        var colonnes = [largeurPage - 224, 64, 60, 100];
+        var xCol = [M];
+        colonnes.forEach(function (w, i) { xCol.push(xCol[i] + w); });
+        var basDePage = doc.page.height - doc.page.margins.bottom;
+        var yT = doc.y;
+        doc.lineWidth(0.5).strokeColor('#000');
+
+        function cadre(i, yy, h) {
+          doc.rect(xCol[i], yy, colonnes[i], h).stroke();
+        }
+        function texte(txt, i, yy, opts) {
+          doc.text(txt, xCol[i] + 4, yy, Object.assign(
+            { width: colonnes[i] - 8 }, opts || {}));
+        }
+        function rangee(cellules, h, gras) {
+          if (yT + h > basDePage) { doc.addPage(); yT = doc.page.margins.top; }
+          doc.fillColor('#000').font(gras ? 'Helvetica-Bold' : 'Helvetica')
+            .fontSize(10);
+          cellules.forEach(function (cel, i) {
+            cadre(i, yT, h);
+            if (cel.t) {
+              // Le vrai signe moins (U+2212) n'existe pas dans la police
+              // standard du PDF : il sortait en guillemet ("20.00).
+              texte(cel.t.replace(/\u2212/g, '-'), i, yT + (cel.centre ? (h - 12) / 2 : 5),
+                { align: cel.align || 'left', lineBreak: true });
+            }
+          });
+          yT += h;
+        }
+
+        rangee([{ t: 'Désignation', align: 'center', centre: true },
+          { t: 'PU', align: 'center', centre: true },
+          { t: 'Rabais', align: 'center', centre: true },
+          { t: 'Montant TTC', align: 'center', centre: true }], 30, true);
+
+        lignesTableau(d.lignes).forEach(function (r) {
+          doc.font('Helvetica').fontSize(10);
+          var hDes = doc.heightOfString(r.designation,
+            { width: colonnes[0] - 8 });
+          rangee([{ t: r.designation },
+            { t: r.pu, align: 'right' },
+            { t: r.rabais, align: 'right' },
+            { t: r.montant, align: 'right' }], Math.max(20, hDes + 10), false);
         });
 
-        doc.moveDown(0.5);
-        var yTotal = doc.y;
-        doc.fontSize(13).text('Total', doc.page.margins.left, yTotal);
-        doc.text(B.formatChf(f.total_rappen) + ' CHF',
-          doc.page.margins.left, yTotal, { width: largeurPage, align: 'right' });
-
         if (d.totaux && d.totaux.vat) {
-          doc.moveDown(0.3).fontSize(10).fillColor('#444');
-          var yVat = doc.y;
-          doc.text('dont TVA', doc.page.margins.left, yVat);
-          doc.text(B.formatChf(d.totaux.vat) + ' CHF',
-            doc.page.margins.left, yVat, { width: largeurPage, align: 'right' });
+          rangee([{ t: 'dont TVA ' + (reglages.tva ? reglages.tva.taux : '')
+              + ' %', align: 'right' }, {}, {},
+            { t: B.formatChf(d.totaux.vat), align: 'right' }], 20, false);
+        }
+        rangee([{ t: 'TOTAL', align: 'right' }, {}, {},
+          { t: B.formatChf(f.total_rappen) + ' CHF', align: 'right' }],
+          22, true);
+
+        doc.font('Helvetica').fontSize(10).fillColor('#000');
+        doc.x = M; doc.y = yT + 10;
+        if (modeR.avecQR) {
+          doc.text('Conditions de paiement : ' + delai + ' jours, net',
+            M + 4, doc.y, { width: largeurPage - 4 });
         }
 
-        doc.moveDown(1).fontSize(9).fillColor('#444')
-          .text('En vous remerciant de la confiance que vous nous '
-            + 'témoignez, nous vous prions d\u2019agréer, Cher Client, nos '
-            + 'salutations distinguées.', doc.page.margins.left,
-            doc.y, { width: largeurPage });
+        doc.moveDown(2).text(FORMULE_POLITESSE, M, doc.y,
+          { width: largeurPage });
 
         // Signature du client, si recueillie — meme image que sur l'ecran.
         if (c.signature) {
@@ -625,9 +700,9 @@
             var base64 = c.signature.split(',')[1];
             doc.moveDown(1.2).fillColor('#000').fontSize(10)
               .text('Signé par le client le '
-                + jour(new Date(c.signeeLe || f.emise_le)));
+                + dateLongue(new Date(c.signeeLe || f.emise_le)), M);
             doc.image(Buffer.from ? Buffer.from(base64, 'base64')
-              : base64ArrayBuffer(base64), doc.page.margins.left, doc.y + 4,
+              : base64ArrayBuffer(base64), M, doc.y + 4,
               { width: 160 });
             doc.moveDown(4);
           } catch (errSig) { /* une signature illisible ne bloque pas le PDF */ }
@@ -639,7 +714,6 @@
           bulletin QR — un QR sur une facture deja payee inviterait le
           client a verser une seconde fois.
         */
-        var modeR = modeReglement((f.donnees || {}).modeReglement);
         if (!modeR.avecQR) {
           doc.moveDown(1.5).fontSize(11).fillColor('#000')
             .text(modeR.mention + ' le '
@@ -1233,6 +1307,11 @@
     modeReglement: modeReglement,
     geocoder: geocoder,
     construirePdfFacture: construirePdfFacture,
+    dateLongue: dateLongue,
+    lignesTableau: lignesTableau,
+    MENTION_NON_ASSUJETTI: MENTION_NON_ASSUJETTI,
+    PHRASE_INTRO_FACTURE: PHRASE_INTRO_FACTURE,
+    FORMULE_POLITESSE: FORMULE_POLITESSE,
     referenceCreanciere: referenceCreanciere,
     referenceLisible: referenceLisible,
     messageDePaiement: messageDePaiement,
