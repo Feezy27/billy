@@ -316,16 +316,38 @@
     depuis le navigateur serait a la fois inutile et dangereux.
   */
   DepotSupabase.prototype.envoyerIntervention = function (it) {
-    return this.client.from('rdvs').upsert(it)
-      .then(function (r) { verifier(r); return it; });
+    /*
+      Confirmation par le serveur (05.11) : on redemande la ligne
+      ecrite (.select). Si la regle de securite filtre l'ecriture SANS
+      renvoyer d'erreur, la reponse est vide : c'est un echec, pas un
+      succes. Sans cela, l'ecran aurait annonce « enregistre » pour
+      un rendez-vous que le serveur n'a jamais garde.
+    */
+    var requete = this.client.from('rdvs').upsert(it);
+    if (requete && typeof requete.select === 'function') {
+      requete = requete.select('id');
+    }
+    return requete.then(function (r) {
+      verifier(r);
+      if (r && Array.isArray(r.data) && r.data.length === 0) {
+        throw new Error('le serveur n\u2019a pas confirm\u00e9 l\u2019enregistrement');
+      }
+      return it;
+    });
   };
 
   DepotSupabase.prototype.enregistrerIntervention = function (it) {
     var self = this;
-    return this.envoyerIntervention(it).catch(function (e) {
+    return this.envoyerIntervention(it).then(function () {
+      // Lu par l'ecran pour dire la verite : « confirme par le serveur »
+      // n'est pas « garde sur ce telephone en attendant le reseau ».
+      self.derniereEcriture = 'serveur';
+      return it;
+    }, function (e) {
       if (!estReseau(e)) throw e;
       var op = { type: 'intervention', id: it.id, valeur: it };
       self.miroirAppliquer(op); enFile(op);
+      self.derniereEcriture = 'attente';
       return it;
     });
   };
@@ -359,6 +381,24 @@
     ecrire('file', file);
     return file.length;
   }
+
+  /** Gestes que le serveur a refuses et que l'utilisateur n'a pas encore vus. */
+  DepotSupabase.prototype.refuses = function () {
+    return lire('refuses', []);
+  };
+  /** Remet les gestes refuses dans la file pour un nouvel essai. */
+  DepotSupabase.prototype.retablirRefuses = function () {
+    var gardes = lire('refuses', []);
+    var file = lire('file', []);
+    gardes.forEach(function (x) { file.push(x.op); });
+    ecrire('file', file);
+    ecrire('refuses', []);
+    return gardes.length;
+  };
+  /** Abandonne les gestes refuses (apres lecture par l'utilisateur). */
+  DepotSupabase.prototype.oublierRefuses = function () {
+    ecrire('refuses', []);
+  };
 
   DepotSupabase.prototype.enAttente = function () {
     return lire('file', []).length;
@@ -410,6 +450,15 @@
             reste.push(op);        // toujours hors ligne : on garde
           } else {
             refuses.push({ op: op, raison: e.message || String(e) });
+            // Conserve (05.11) : un geste refuse ne doit plus disparaitre
+            // en silence — l'ecran le montre et laisse reessayer.
+            var gardes = lire('refuses', []);
+            gardes = gardes.filter(function (x) {
+              return !(x.op.type === op.type && x.op.id === op.id);
+            });
+            gardes.push({ op: op, raison: e.message || String(e),
+                          le: new Date().toISOString() });
+            ecrire('refuses', gardes);
           }
         })
         .then(function () { return suivant(i + 1); });

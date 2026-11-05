@@ -163,6 +163,15 @@
     L'onglet actif se reconnait a trois signes (jamais a la seule
     couleur) : icone et texte marine plus gras, et un trait ambre en haut.
   */
+  /* Notification de confirmation (05.11) : au-dessus de la barre du bas. */
+  #notif-billy{position:fixed;left:12px;right:12px;
+    bottom:calc(74px + env(safe-area-inset-bottom));z-index:50;
+    max-width:596px;margin:0 auto;padding:12px 14px;border-radius:12px;
+    font-size:15px;line-height:1.35;box-shadow:0 4px 18px rgba(26,31,46,.25)}
+  #notif-billy.cache{display:none !important}
+  #notif-billy.ok{background:#E8F5EE;border:1px solid rgba(23,96,59,.5)}
+  #notif-billy.info{background:var(--beige-alerte);border:1px solid rgba(216,142,15,.6)}
+  #notif-billy.alerte{background:#FDECEC;border:1px solid rgba(180,35,24,.5)}
   nav{position:fixed;bottom:0;left:0;right:0;background:var(--blanc);
     border-top:1px solid var(--ligne);box-shadow:0 -2px 10px rgba(26,31,46,.06);
     display:flex;justify-content:center;
@@ -538,6 +547,8 @@
   </div>
   <p class="muted" id="etat-depot"></p>
 </div>
+
+<div id="notif-billy" class="cache" role="status" aria-live="polite"></div>
 
 <!-- ============ AGENDA ============ -->
 <div id="ecran-agenda" class="colonne ecran">
@@ -1279,6 +1290,27 @@
     $(cible).innerHTML = texte
       ? '<div class="' + (genre || 'alerte') + '">' + texte + '</div>' : '';
   }
+
+  /*
+    Notification de confirmation (05.11). Verte : disparait seule.
+    Orange / rouge : reste jusqu'a ce qu'on la touche — c'est elle qui
+    avertit qu'un rendez-vous n'est PAS (encore) chez le serveur.
+  */
+  var minuteurNotif = null;
+  function notifier(texte, genre, dureeMs) {
+    var n = $('notif-billy');
+    if (!n) return;
+    clearTimeout(minuteurNotif);
+    n.className = genre || 'ok';
+    n.textContent = texte;
+    if (dureeMs) minuteurNotif = setTimeout(function () {
+      n.className = 'cache';
+    }, dureeMs);
+  }
+  $('notif-billy').addEventListener('click', function () {
+    clearTimeout(minuteurNotif);
+    $('notif-billy').className = 'cache';
+  });
 
   function montrer(nom) {
     ['connexion', 'agenda', 'rdv', 'interventions', 'nouvelle',
@@ -2889,6 +2921,27 @@
     if (!zone) return;
     var attente = (depot && depot.enAttente)
       ? depot.enAttente() : 0;
+    // Gestes refuses par le serveur (05.11) : jamais passes sous silence.
+    var refuses = (depot && depot.refuses) ? depot.refuses() : [];
+    if (refuses.length) {
+      zone.innerHTML = '<div class="alerte" id="bloc-refuses"><strong>'
+        + refuses.length + ' enregistrement'
+        + (refuses.length > 1 ? 's' : '') + ' refusé'
+        + (refuses.length > 1 ? 's' : '') + ' par le serveur</strong> '
+        + '(raison : ' + (refuses[0].raison || 'inconnue') + '). '
+        + 'Ils ne sont PAS enregistrés.'
+        + '<button class="secondaire" id="btn-retablir-refuses" '
+        + 'style="margin-top:8px">Réessayer l’envoi</button>'
+        + '<button class="secondaire" id="btn-oublier-refuses" '
+        + 'style="margin-top:8px">J’ai compris, abandonner</button></div>';
+      $('btn-retablir-refuses').addEventListener('click', function () {
+        depot.retablirRefuses(); retenterSynchronisation();
+      });
+      $('btn-oublier-refuses').addEventListener('click', function () {
+        depot.oublierRefuses(); afficherBandeauHorsLigne();
+      });
+      return;
+    }
     if (!depot || (!depot.horsLigne && !attente)) { zone.innerHTML = ''; return; }
     var bouton = '<button class="secondaire" id="btn-reessayer-reseau" '
       + 'style="margin-top:8px">'
@@ -4114,9 +4167,11 @@
     if (enregistrementRdvEnCours) return;
 
     var nom = $('rdv-nom').value.trim();
-    if (!nom) { message('etat-rdv', 'Le nom du client est nécessaire.'); return; }
+    if (!nom) { message('etat-rdv', 'Le nom du client est nécessaire.');
+      notifier('✗ Rendez-vous NON enregistré. ' + 'Le nom du client est nécessaire.', 'alerte', 6000); return; }
     if (!$('rdv-date').value || !$('rdv-heure').value) {
-      message('etat-rdv', 'Indiquez une date et une heure.'); return;
+      message('etat-rdv', 'Indiquez une date et une heure.');
+      notifier('✗ Rendez-vous NON enregistré. ' + 'Indiquez une date et une heure.', 'alerte', 6000); return;
     }
 
     // Date locale explicite : « 2026-09-04T09:00 » sans Z est
@@ -4124,7 +4179,8 @@
     // qu'on veut pour un rendez-vous pris en Suisse.
     var debut = new Date($('rdv-date').value + 'T' + $('rdv-heure').value);
     if (isNaN(debut.getTime())) {
-      message('etat-rdv', 'Date ou heure incorrecte.'); return;
+      message('etat-rdv', 'Date ou heure incorrecte.');
+      notifier('✗ Rendez-vous NON enregistré. ' + 'Date ou heure incorrecte.', 'alerte', 6000); return;
     }
 
     var ligne = {
@@ -4175,7 +4231,19 @@
     enregistrementRdvEnCours = true;
     $('btn-enregistrer-rdv').disabled = true;
 
+    depot.derniereEcriture = undefined;
     depot.enregistrerIntervention(ligne).then(function () {
+      var enAttente = depot.derniereEcriture === 'attente';
+      var resume = new Date(ligne.debut_le).toLocaleDateString('fr-CH',
+          { weekday: 'long', day: 'numeric', month: 'long' })
+        + ' à ' + $('rdv-heure').value + ' — ' + nom;
+      if (enAttente) {
+        notifier('⚠ Rendez-vous gardé sur ce téléphone, PAS encore envoyé '
+          + '(pas de réseau) : ' + resume + '. Il partira au retour du '
+          + 'réseau ; ouvrez l’application une fois connecté.', 'info');
+      } else {
+        notifier('✓ Rendez-vous enregistré : ' + resume, 'ok', 6000);
+      }
       var i = interventions.findIndex(function (x) { return x.id === ligne.id; });
       if (i >= 0) interventions[i] = ligne; else interventions.unshift(ligne);
       rdvEnEdition = null;
@@ -4186,6 +4254,8 @@
       montrer('agenda');
     }).catch(function (e) {
       message('etat-rdv', 'Enregistrement impossible : ' + (e.message || e));
+      notifier('✗ Rendez-vous NON enregistré : ' + (e.message || e)
+        + '. Appuyez de nouveau sur « Enregistrer ».', 'alerte');
     }).then(function () {
       // Toujours leve, meme apres une erreur : sinon un rendez-vous
       // reste bloque sans recours apres un simple probleme reseau.
