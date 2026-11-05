@@ -433,10 +433,9 @@
     -webkit-appearance:none;appearance:none}
   .heure-champ span{color:var(--brume);font-weight:700;flex:0 0 auto}
   /*
-    RENDEZ-VOUS PASSE (05.11) : reste dans l'agenda, mais attenue pour
-    qu'on voie d'un coup d'oeil ce qui est deja fait. Pas de
-    « pointer-events » coupe : un rendez-vous passe mais pas encore
-    facture garde son bouton Facturer.
+    RENDEZ-VOUS PASSE (05.11) = FACTURE : reste dans l'agenda comme
+    trace de ce qui a ete fait, attenue pour qu'on voie d'un coup
+    d'oeil ce qui est deja traite.
   */
   .carte.rdv-passe{background:var(--beige-fonce);opacity:.62}
   .carte.rdv-passe strong{font-weight:600}
@@ -2996,12 +2995,6 @@
       { hour: '2-digit', minute: '2-digit' });
   }
 
-  /** Fin prevue d'un rendez-vous : debut + duree (45 min a defaut). */
-  function finRdv(it) {
-    return new Date(new Date(it.debut_le).getTime()
-      + (it.duree_min || 45) * 60000);
-  }
-
   /**
    * Un vrai RENDEZ-VOUS pris a l'agenda, par opposition a une
    * intervention saisie directement (« Nouvelle intervention ») ou
@@ -3021,9 +3014,15 @@
       || (it.statut === 'termine' && estUnRdv(it));
   }
 
-  /** Passe = deja facture, ou creneau termine. */
+  /**
+   * « Passe » = TRAITE (facture), et rien d'autre. Demande de Philippe
+   * (05.11) : l'heure qui s'ecoule ne grise rien — un rendez-vous pas
+   * encore facture reste affiche normalement, meme si son heure est
+   * depassee, pour ne pas le perdre de vue. L'agenda sert aussi de
+   * memoire : ce qu'on a fait tel ou tel jour.
+   */
   function rdvPasse(it) {
-    return it.statut === 'termine' || finRdv(it).getTime() < Date.now();
+    return it.statut === 'termine';
   }
 
   /**
@@ -3242,8 +3241,7 @@
         + '<strong>' + libelleCreneau(it) + ' · '
         + (d.clientNom || 'Client') + '</strong>'
         + (passe ? ' <span class="pastille">'
-          + (termine ? (fact ? 'Facturé' : 'Terminé') : 'Passé · à facturer')
-          + '</span>' : '')
+          + (fact ? 'Facturé' : 'Terminé') + '</span>' : '')
         + '<div class="muted">'
         + ((it.adresse || '') + ' ' + (it.npa || '') + ' '
            + (it.localite || '')).trim()
@@ -3252,8 +3250,8 @@
         + (retour ? '<div class="muted">' + retour + '</div>' : '')
         // Ouvre Google Maps avec l'adresse DEJA saisie (pas de bouton
         // sans adresse : il ouvrirait une carte vide).
-        // Meme sur un rendez-vous « passe » mais pas encore traite : on
-        // peut etre en retard et en route. Plus de bouton une fois termine.
+        // Un rendez-vous non facture garde Maps meme si son heure est
+        // depassee (on peut etre en retard et en route).
         + (adresseRdv(it) && !termine ? '<button class="secondaire" data-maps-rdv="'
           + it.id + '">📍 Ouvrir dans Google Maps</button>' : '')
         // « Faire l'intervention » ne disait pas a quoi menait le
