@@ -432,6 +432,14 @@
   .heure-champ select{flex:1;min-width:0;text-align:center;padding:11px 2px;
     -webkit-appearance:none;appearance:none}
   .heure-champ span{color:var(--brume);font-weight:700;flex:0 0 auto}
+  /*
+    RENDEZ-VOUS PASSE (05.11) : reste dans l'agenda, mais attenue pour
+    qu'on voie d'un coup d'oeil ce qui est deja fait. Pas de
+    « pointer-events » coupe : un rendez-vous passe mais pas encore
+    facture garde son bouton Facturer.
+  */
+  .carte.rdv-passe{background:var(--beige-fonce);opacity:.62}
+  .carte.rdv-passe strong{font-weight:600}
   .ecran{display:none}
   .ecran.visible{display:block}
   .ligne-facture{display:flex;justify-content:space-between;
@@ -1401,6 +1409,8 @@
     }).then(function (f) {
       factures = f || [];
       afficherFactures();
+      // « Voir la facture » des rendez-vous termines a besoin des factures.
+      afficherAgenda();
       return depot.listerDepenses ? depot.listerDepenses() : [];
     }).then(function (d) {
       depenses = d || [];
@@ -2986,6 +2996,36 @@
       { hour: '2-digit', minute: '2-digit' });
   }
 
+  /** Fin prevue d'un rendez-vous : debut + duree (45 min a defaut). */
+  function finRdv(it) {
+    return new Date(new Date(it.debut_le).getTime()
+      + (it.duree_min || 45) * 60000);
+  }
+
+  /**
+   * Un vrai RENDEZ-VOUS pris a l'agenda, par opposition a une
+   * intervention saisie directement (« Nouvelle intervention ») ou
+   * issue d'un devis accepte : celles-la n'ont pas de creneau, leur
+   * date est celle de la saisie, et elles n'ont rien a faire dans
+   * l'agenda. Un rendez-vous porte toujours sa duree de creneau et ce
+   * qui a ete annonce au telephone.
+   */
+  function estUnRdv(it) {
+    var d = it.donnees || {};
+    return !!(it.duree_min || d.nidsAnnonces) && !d.issuDuDevis;
+  }
+
+  /** Ce que l'agenda montre : les rendez-vous a venir ET passes. */
+  function rdvAffichable(it) {
+    return it.statut === 'planifie'
+      || (it.statut === 'termine' && estUnRdv(it));
+  }
+
+  /** Passe = deja facture, ou creneau termine. */
+  function rdvPasse(it) {
+    return it.statut === 'termine' || finRdv(it).getTime() < Date.now();
+  }
+
   /**
    * Vrai si un AUTRE rendez-vous du meme jour s'enchaine directement
    * a la suite de `it` — dans un sens ou dans l'autre :
@@ -3069,11 +3109,11 @@
     return j;
   }
 
-  /** { 'AAAA-MM-JJ': nombre de rendez-vous planifies ce jour-la }. */
+  /** { 'AAAA-MM-JJ': nombre de rendez-vous (a venir ou passes) ce jour-la }. */
   function joursAvecRdv() {
     var s = {};
     interventions.forEach(function (it) {
-      if (it.statut !== 'planifie') return;
+      if (!rdvAffichable(it)) return;
       var k = cleJour(new Date(it.debut_le));
       s[k] = (s[k] || 0) + 1;
     });
@@ -3176,10 +3216,13 @@
       function (cle) { jourAffiche = dateDepuisCle(cle); afficherAgenda(); });
 
     var duJour = interventions.filter(function (it) {
-      return it.statut === 'planifie' && memeJour(it.debut_le, jourAffiche);
+      return rdvAffichable(it) && memeJour(it.debut_le, jourAffiche);
     }).sort(function (a, b) {
       return String(a.debut_le).localeCompare(String(b.debut_le));
     });
+    // Le « retour prevu » et l'enchainement ne concernent que ce qui
+    // reste a faire : les rendez-vous termines n'y changent rien.
+    var aVenir = duJour.filter(function (it) { return it.statut === 'planifie'; });
 
     if (!duJour.length) {
       $('liste-agenda').innerHTML = '<div class="carte"><p class="muted">'
@@ -3189,10 +3232,18 @@
 
     $('liste-agenda').innerHTML = duJour.map(function (it) {
       var d = it.donnees || {};
-      var retour = libelleRetour(it, duJour);
-      return '<div class="carte" data-ouvrir-rdv="' + it.id + '">'
+      var passe = rdvPasse(it);
+      var termine = it.statut === 'termine';
+      var fact = termine ? lesFactures().filter(function (f) {
+        return f.rdv_id === it.id; })[0] : null;
+      var retour = passe ? '' : libelleRetour(it, aVenir);
+      return '<div class="carte' + (passe ? ' rdv-passe' : '')
+        + '" data-ouvrir-rdv="' + it.id + '">'
         + '<strong>' + libelleCreneau(it) + ' · '
         + (d.clientNom || 'Client') + '</strong>'
+        + (passe ? ' <span class="pastille">'
+          + (termine ? (fact ? 'Facturé' : 'Terminé') : 'Passé · à facturer')
+          + '</span>' : '')
         + '<div class="muted">'
         + ((it.adresse || '') + ' ' + (it.npa || '') + ' '
            + (it.localite || '')).trim()
@@ -3201,20 +3252,36 @@
         + (retour ? '<div class="muted">' + retour + '</div>' : '')
         // Ouvre Google Maps avec l'adresse DEJA saisie (pas de bouton
         // sans adresse : il ouvrirait une carte vide).
-        + (adresseRdv(it) ? '<button class="secondaire" data-maps-rdv="'
+        // Meme sur un rendez-vous « passe » mais pas encore traite : on
+        // peut etre en retard et en route. Plus de bouton une fois termine.
+        + (adresseRdv(it) && !termine ? '<button class="secondaire" data-maps-rdv="'
           + it.id + '">📍 Ouvrir dans Google Maps</button>' : '')
         // « Faire l'intervention » ne disait pas a quoi menait le
         // bouton. Cet ecran est deja le recapitulatif du rendez-vous,
         // avec le prix et la signature du client — c'est bien vers la
         // facturation qu'il conduit.
-        + '<button data-demarrer="' + it.id + '">Facturer</button>'
-        + '<div class="rangee">'
-        + '<button class="secondaire" data-modifier-rdv="' + it.id + '">'
-        + 'Modifier</button>'
-        + '<button class="secondaire" data-suppr-rdv="' + it.id + '">'
-        + 'Supprimer</button></div>'
+        + (termine
+          // Deja traite : pas de « Facturer » (ce serait refacturer),
+          // ni de Modifier / Supprimer (la facture existe). Un lien
+          // vers la facture, quand elle est retrouvee.
+          ? (fact ? '<button class="secondaire" data-voir-facture-rdv="'
+              + fact.id + '">Voir la facture ' + fact.numero + '</button>' : '')
+          : '<button data-demarrer="' + it.id + '">Facturer</button>'
+            + '<div class="rangee">'
+            + '<button class="secondaire" data-modifier-rdv="' + it.id + '">'
+            + 'Modifier</button>'
+            + '<button class="secondaire" data-suppr-rdv="' + it.id + '">'
+            + 'Supprimer</button></div>')
         + '</div>';
     }).join('');
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-voir-facture-rdv]'), function (b) {
+        b.addEventListener('click', function () {
+          ouvrirFacture(factures.find(function (x) {
+            return x.id === b.dataset.voirFactureRdv; }));
+        });
+      });
 
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-demarrer]'), function (b) {
