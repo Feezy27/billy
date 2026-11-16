@@ -21,11 +21,13 @@
 
 // Change ce numero a chaque livraison : il force le nettoyage des
 // anciennes reserves.
-const VERSION = 'billy-2026-11-05c';
+const VERSION = 'billypro2-2026-11-16a';
 
 const FICHIERS = [
   './',
   './index.html',
+  './config.js',
+  './manifest.webmanifest',
   './moteur-billy.js',
   './qr-facture.js',
   './logique.js',

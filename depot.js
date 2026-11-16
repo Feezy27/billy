@@ -21,7 +21,7 @@
 (function (global) {
   'use strict';
 
-  var PREFIXE = 'billyswiss.';
+  var PREFIXE = 'billypro2.';  // distinct de l'ancienne app : aucune donnee partagee
 
   /* ---------- utilitaires ---------- */
 
@@ -480,6 +480,12 @@
       self.miroirAppliquer(op); enFile(op);
       return true;
     });
+  };
+
+  /** Etat de l'abonnement : { etat: 'essai'|'actif'|'expire', jours_restants }. */
+  DepotSupabase.prototype.monAbonnement = function () {
+    return this.client.rpc('mon_abonnement')
+      .then(function (r) { verifier(r); return r.data; });
   };
 
   DepotSupabase.prototype.listerMembres = function () {

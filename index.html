@@ -18,10 +18,14 @@
   d'accueil et le rajouter.
 -->
 <link rel="apple-touch-icon" href="icone-app.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="BillyPro">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#FAF6EE">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
 <script src="moteur-billy.js"></script>
 <script src="qr-facture.js"></script>
 <script src="logique.js"></script>
@@ -179,6 +183,11 @@
   #bandeau-invite.cache{display:none !important}
   #bandeau-invite button{margin:6px 0 0;width:auto;padding:6px 14px;
     background:#fff;color:#B42318;border:0;border-radius:8px;font-weight:600}
+  #bandeau-abonnement{position:sticky;top:0;z-index:39;padding:8px 14px;
+    font-size:14px;text-align:center;background:var(--beige-alerte);
+    border-bottom:1px solid rgba(216,142,15,.45)}
+  #bandeau-abonnement.expire{background:#B42318;color:#fff}
+  #bandeau-abonnement.cache{display:none !important}
   nav{position:fixed;bottom:0;left:0;right:0;background:var(--blanc);
     border-top:1px solid var(--ligne);box-shadow:0 -2px 10px rgba(26,31,46,.06);
     display:flex;justify-content:center;
@@ -554,6 +563,24 @@
     <input id="motdepasse" type="password" autocomplete="current-password">
     <button id="btn-connexion">Se connecter</button>
     <div id="erreur-connexion"></div>
+    <button id="btn-vers-inscription" class="secondaire">Créer mon entreprise — 30 jours d’essai gratuit</button>
+    <div id="bloc-inscription" class="cache">
+      <h2 style="margin-top:14px">Créer mon entreprise</h2>
+      <label for="ins-entreprise">Nom de l’entreprise</label>
+      <input id="ins-entreprise" type="text" autocomplete="organization">
+      <p class="muted">Vous rejoignez un collègue déjà inscrit ? Laissez ce
+        champ vide : il vous rattachera depuis ses Réglages.</p>
+      <label for="ins-email">Adresse e-mail</label>
+      <input id="ins-email" type="email" autocomplete="username" inputmode="email">
+      <label for="ins-mdp">Mot de passe (8 caractères au moins)</label>
+      <input id="ins-mdp" type="password" autocomplete="new-password">
+      <label style="display:flex;gap:8px;align-items:flex-start;font-weight:400">
+        <input id="ins-cgu" type="checkbox" style="width:auto;margin-top:3px">
+        <span>J’accepte les conditions générales et la politique de
+          confidentialité.</span></label>
+      <button id="btn-inscription">Créer mon compte</button>
+      <div id="etat-inscription"></div>
+    </div>
     <button id="btn-sans-compte" class="secondaire">Continuer en invité (données NON partagées)</button>
     <p class="muted">Sans compte, les données restent sur cet appareil et ne
       sont pas partagées avec votre collègue.</p>
@@ -562,6 +589,7 @@
 </div>
 
 <div id="notif-billy" class="cache" role="status" aria-live="polite"></div>
+<div id="bandeau-abonnement" class="cache"></div>
 
 <!-- ============ AGENDA ============ -->
 <div id="ecran-agenda" class="colonne ecran">
@@ -1281,8 +1309,11 @@
 (function () {
   'use strict';
 
-  var SUPABASE_URL = 'https://huugiojsdjkrxxshiqzo.supabase.co';
-  var SUPABASE_KEY = 'sb_publishable_cvizHAoEuQdmd2RooCzE9Q_aOE-61pH';
+  // Version « vendable » : l'adresse du serveur vit dans config.js.
+  // Vide = aucun serveur (mode demonstration sur l'appareil).
+  var CONFIG = window.BILLY_CONFIG || {};
+  var SUPABASE_URL = CONFIG.supabaseUrl || '';
+  var SUPABASE_KEY = CONFIG.supabaseKey || '';
 
   var client = null;
   var depot = null;
@@ -1424,7 +1455,7 @@
 
   function apresConnexion() {
     // L'agenda du jour est ce qu'on veut voir en ouvrant l'application.
-    chargerTout().then(function () { montrer('agenda'); });
+    chargerTout().then(function () { montrer('agenda'); afficherAbonnement(); });
   }
 
   function chargerTout() {
@@ -1492,6 +1523,73 @@
       message('erreur-connexion', 'Connexion impossible : ' + (e.message || e));
     });
   });
+
+  /* ---------- Inscription (version vendable) ---------- */
+  $('btn-vers-inscription').addEventListener('click', function () {
+    $('bloc-inscription').classList.toggle('cache');
+  });
+  $('btn-inscription').addEventListener('click', function () {
+    var nomE = $('ins-entreprise').value.trim();
+    var mail = $('ins-email').value.trim();
+    var mdp = $('ins-mdp').value;
+    if (!client) {
+      message('etat-inscription', 'Inscription indisponible : le serveur '
+        + 'n’est pas encore configuré (config.js).'); return;
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) {
+      message('etat-inscription', 'Adresse e-mail incorrecte.'); return;
+    }
+    if (mdp.length < 8) {
+      message('etat-inscription', 'Mot de passe : 8 caractères au moins.'); return;
+    }
+    if (!$('ins-cgu').checked) {
+      message('etat-inscription', 'Merci d’accepter les conditions.'); return;
+    }
+    var b = $('btn-inscription');
+    b.disabled = true;
+    // Le nom de l'entreprise voyage avec le compte : c'est la base
+    // (declencheur SQL) qui cree l'entreprise, jamais le navigateur.
+    client.auth.signUp({ email: mail, password: mdp,
+      options: { data: { entreprise: nomE } } }).then(function (r) {
+      b.disabled = false;
+      if (r.error) {
+        message('etat-inscription',
+          /already registered/i.test(r.error.message)
+            ? 'Un compte existe déjà avec cette adresse : connectez-vous.'
+            : r.error.message);
+        return;
+      }
+      if (r.data && r.data.session) { apresConnexion(); return; }
+      message('etat-inscription', 'Compte créé. Ouvrez l’e-mail de '
+        + 'confirmation que nous venons d’envoyer, puis connectez-vous.', 'ok');
+    }).catch(function (e) {
+      b.disabled = false;
+      message('etat-inscription', 'Inscription impossible : ' + (e.message || e));
+    });
+  });
+
+  /*
+    Abonnement : la base dit ou en est l'entreprise (essai, actif,
+    expire). L'ecran l'affiche ; c'est la BASE qui bloque les ecritures
+    d'un abonnement expire — un bandeau seul ne protegerait rien.
+  */
+  function afficherAbonnement() {
+    var z = $('bandeau-abonnement');
+    if (!depot || !depot.monAbonnement) { z.className = 'cache'; return; }
+    depot.monAbonnement().then(function (a) {
+      if (!a || a.etat === 'actif') { z.className = 'cache'; return; }
+      if (a.etat === 'essai') {
+        z.className = '';
+        z.textContent = 'Essai gratuit : encore ' + a.jours_restants + ' jour'
+          + (a.jours_restants > 1 ? 's' : '') + '.';
+      } else {
+        z.className = 'expire';
+        z.textContent = 'Abonnement expiré : vos données restent lisibles, '
+          + 'mais plus rien ne peut être enregistré. Contactez-nous pour '
+          + 'réactiver.';
+      }
+    }).catch(function () { z.className = 'cache'; });
+  }
 
   $('btn-sans-compte').addEventListener('click', basculerEnLocal);
   // Recharger repart du demarrage normal : connexion si pas de session.
@@ -1589,7 +1687,7 @@
     premier se verifie, le second depend du navigateur.
   */
 
-  var CLE_DERNIERE_SAUVEGARDE = 'billyswiss.derniereSauvegarde';
+  var CLE_DERNIERE_SAUVEGARDE = 'billypro2.derniereSauvegarde';
 
   function preparerExport() {
     return {
@@ -2810,13 +2908,13 @@
   function chargerCacheGeo() {
     try {
       cacheGeo = JSON.parse(
-        window.localStorage.getItem('billyswiss.geo') || '{}');
+        window.localStorage.getItem('billypro2.geo') || '{}');
     } catch (e) { cacheGeo = {}; }
   }
 
   function rangerCacheGeo() {
     try {
-      window.localStorage.setItem('billyswiss.geo', JSON.stringify(cacheGeo));
+      window.localStorage.setItem('billypro2.geo', JSON.stringify(cacheGeo));
     } catch (e) { /* stockage refuse */ }
   }
 
@@ -6377,7 +6475,7 @@
       est seulement le mot qui l'accompagne dans la messagerie.
     */
     var sujet = 'Votre facture ' + f.numero + ' \u2014 '
-      + (entreprise.nom || 'Allô ça pique');
+      + (entreprise.nom || 'Votre entreprise');
 
     var salutation = client.clientNom
       ? 'Bonjour ' + client.clientNom : 'Bonjour';
@@ -6420,7 +6518,7 @@
       + SAUT + SAUT
       + 'N\u2019h\u00e9sitez pas \u00e0 revenir vers nous pour la moindre '
       + 'question.' + SAUT + SAUT + 'Belle journ\u00e9e,' + SAUT
-      + (entreprise.nom || 'Allô ça pique')
+      + (entreprise.nom || 'Votre entreprise')
       + (entreprise.telephone ? SAUT + entreprise.telephone : '');
 
     /*

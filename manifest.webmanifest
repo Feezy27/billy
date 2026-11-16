@@ -1,0 +1,15 @@
+{
+  "name": "BillyPro Suisse",
+  "short_name": "BillyPro",
+  "description": "Rendez-vous, interventions, devis et QR-factures pour les professionnels suisses de la désinsectisation.",
+  "lang": "fr-CH",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF6EE",
+  "theme_color": "#FAF6EE",
+  "icons": [
+    { "src": "icone-app.png", "sizes": "1254x1254", "type": "image/png", "purpose": "any" }
+  ]
+}
